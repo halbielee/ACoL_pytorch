@@ -1,5 +1,4 @@
-# from torchvision import transforms
-from .transforms import transforms
+from torchvision import transforms
 from torch.utils.data import DataLoader
 from .mydataset import dataset as my_dataset
 import torchvision
@@ -46,7 +45,7 @@ def data_loader(args, test_path=False, segmentation=False):
 
     tsfm_test = transforms.Compose(func_transforms)
 
-    img_train = my_dataset(args.train_list, root_dir=args.img_dir,
+    img_train = CUBClsDataset(args.data, root_dir=args.img_dir,
                            transform=tsfm_train, with_path=True)
 
     img_test = my_dataset(args.test_list, root_dir=args.img_dir,
