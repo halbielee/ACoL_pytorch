@@ -37,33 +37,69 @@ class VGG(nn.Module):
     def forward(self, x, label=None):
 
         # Backbone
-        x = self.features(x)
+        feature = self.features(x)
 
         # F.avg_pool2d? why?
 
         # Branch A
-        out_A = self.classifier_A(x)
-
-        logits_1 = self.GlobalAvgPool(out_A)
-        b, c, _, _ = logits_1.size()
-        logits_1 = logits_1.view(b, c)
+        feature_map_A = self.classifier_A(feature)
+        self.feature_map_A = feature_map_A
+        logits_A = self.GlobalAvgPool(feature_map_A)
+        b, c, _, _ = logits_A.size()
+        logits_A = logits_A.view(b, c)
 
         if label is None:
-            _, label = torch.max(logits_1, dim=1)
+            _, label = torch.max(logits_A, dim=1)
 
         # generate attention map
-        localization_map = self.get_attention_map(logits_1)
+        attention_map = self.get_attention_map(feature_map_A, label)
         # erasing step
+        erased_feature = self.erase_attention(feature, attention_map, 0.5)
 
-        in_B = self.erase_attention()
         # Branch B
-        out_B = self.classifier_B(x)
+        feature_map_B = self.classifier_B(erased_feature)
+        self.feature_map_B = feature_map_B
+        logits_B = self.GlobalAvgPool(feature_map_B)
+        b, c, _, _ = logits_B.size()
+        logits_B = logits_B.view(b, c)
 
-        logits_2 = self.GlobalAvgPool(out_B)
-        b, c, _, _ = logits_2.size()
-        logits_2 = logits_2.view(b, c)
+        return logits_A, logits_B
 
-        return logits_1, logits_2
+    def get_attention_map(self, feature_map, label):
+        label = label.long()
+        b = feature_map.size(0)
+
+        attention_map = feature_map[range(b),label,:,:]
+        return attention_map
+
+    def erase_attention(self, feature, attention_map, thr_val):
+
+        b, h, w = attention_map.size()
+        pos = torch.ge(attention_map, thr_val)
+        mask = attention_map.new_ones((b,h,w))
+        mask[pos.data] = 0.
+        mask = torch.unsqueeze(mask, dim=1)
+
+        # erase feature
+        erased_feature = feature * mask
+        return erased_feature
+
+    def normalize_attention(self, attention_map):
+        b, c, h, w = attention_map.size()
+
+        aggregated_attention_map = attention_map.view(b,c,-1)
+        minimum, _ = torch.min(aggregated_attention_map, dim=-1, keepdim=True)
+        maximum, _ = torch.max(aggregated_attention_map, dim=-1, keepdim=True)
+        normalized_attention_map = torch.div(aggregated_attention_map - minimum,
+                                             maximum - minimum)
+        normalized_attention_map = normalized_attention_map.view(b,c,h,w)
+
+        return normalized_attention_map
+
+    def generate_localization_map(self):
+        map_A = self.normalized_attention(self.attention_map_A)
+        map_B = self.normalized_attention(self.attention_map_B)
+        return torch.max(map_A, map_B)
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -77,21 +113,15 @@ class VGG(nn.Module):
             elif isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
-    def get_attention_map(self, feature_map, label):
-        label = label.long()
-        b, _, h, w = feature_map.size()
 
-        attention_map = feature_map[:,label,:,:]
-        return attention_map
-    def erase_attention(self, ate):
 
 def make_classifier(in_planes, out_planes):
     return nn.Sequential(
         nn.Conv2d(in_planes, 1024, kernel_size=3, stride=1, padding=1),
         nn.ReLU(inplace=True),
-        nn.Conv2d(in_planes, 1024, kernel_size=3, stride=1, padding=1),
+        nn.Conv2d(1024, 1024, kernel_size=3, stride=1, padding=1),
         nn.ReLU(inplace=True),
-        nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0),
+        nn.Conv2d(1024, out_planes, kernel_size=1, stride=1, padding=0),
     )
 
 
@@ -131,8 +161,17 @@ def _vgg(arch, cfg, batch_norm, pretrained, progress, **kwargs):
     model = VGG(make_layers(cfgs[cfg], batch_norm=batch_norm), **kwargs)
     if pretrained:
         state_dict = load_url(model_urls[arch], progress=progress)
-        model.load_state_dict(state_dict)
+        state_dict = remove_layer(state_dict, 'classifier.')
+        model.load_state_dict(state_dict, strict=False)
     return model
+
+
+def remove_layer(state_dict, keyword):
+    keys = [key for key in state_dict.keys()]
+    for key in keys:
+        if keyword in key:
+            state_dict.pop(key)
+    return state_dict
 
 
 def vgg11(pretrained=False, progress=True, **kwargs):
