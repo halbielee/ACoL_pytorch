@@ -23,7 +23,7 @@ model_urls = {
 
 class VGG(nn.Module):
 
-    def __init__(self, features, num_classes=1000, init_weights=True):
+    def __init__(self, features, num_classes=1000, init_weights=True, writer=None):
         super(VGG, self).__init__()
         self.features = features
 
@@ -33,8 +33,8 @@ class VGG(nn.Module):
         self.GlobalAvgPool = nn.AdaptiveAvgPool2d(1)
         if init_weights:
             self._initialize_weights()
-
-    def forward(self, x, label=None):
+        self.writer = writer
+    def forward(self, x, label=None, thr_val=0.7):
         # Backbone
         feature = self.features(x)
 
@@ -53,7 +53,7 @@ class VGG(nn.Module):
         # generate attention map
         attention_map = self.get_attention_map(feature_map_A, label)
         # erasing step
-        erased_feature = self.erase_attention(feature, attention_map, 0.5)
+        erased_feature = self.erase_attention(feature, attention_map, thr_val)
 
         # Branch B
         feature_map_B = self.classifier_B(erased_feature)
@@ -123,7 +123,8 @@ class VGG(nn.Module):
         aggregated_map = torch.max(map_A, map_B).detach().cpu()
         upsampled_map = torch.nn.functional.interpolate(aggregated_map,
                                                         size=(224,224),
-                                                        mode='bilinear')
+                                                        mode='bilinear',
+                                                        align_corners=True)
         return upsampled_map
 
     def _initialize_weights(self):

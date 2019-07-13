@@ -22,14 +22,19 @@ import numpy as np
 from network import vgg
 from tensorboardX import SummaryWriter
 from utils.util_args import get_args
-
 from utils.util_loss import Loss
 from utils.util_loader import data_loader
 from utils.util_cam import *
+from utils.util_acc import calculate_IOU
+from utils.dataset_cub import get_image_name
+from utils.util_bbox import load_bbox_size
 
 best_acc1 = 0
 best_loc1 = 0
-
+loc1_at_best_acc1 = 0
+acc1_at_best_loc1 = 0
+gtknown_at_best_acc1 = 0
+gtknown_at_best_loc1 = 0
 
 def save_checkpoint(state, is_best, save_dir, filename='checkpoint.pth.tar'):
     if not os.path.isdir(save_dir):
@@ -170,8 +175,6 @@ def main_worker(gpu, ngpus_per_node, args):
 
     if args.arch.startswith('vgg'):
         models = getattr(vgg, args.arch)
-    elif args.arch.startswith('alexnet'):
-        pass
     else:
         raise Exception("Fail to recognize the architecture")
 
@@ -179,6 +182,24 @@ def main_worker(gpu, ngpus_per_node, args):
         model = models(pretrained=True)
     else:
         model = models(pretrained=False)
+
+    # define loss function (criterion) and optimizer
+    criterion = Loss(args.gpu)
+    param_features = []
+    param_classifier = []
+
+    for name, param in model.named_parameters():
+        if 'features.' in name:
+            param_features.append(param)
+        else:
+            param_classifier.append(param)
+
+    optimizer = torch.optim.SGD([
+        {'params': param_features, 'lr': args.lr},
+        {'params': param_classifier, 'lr': args.lr*10}],
+        momentum=args.momentum,
+        weight_decay=args.weight_decay,
+        nesterov=args.nest)
 
     # Change the last fully connected layers.
     if args.distributed:
@@ -210,16 +231,6 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             model = torch.nn.DataParallel(model).cuda()
 
-    # define loss function (criterion) and optimizer
-    criterion = Loss(args.gpu)
-
-    optimizer = torch.optim.SGD(
-        model.parameters(),
-        args.lr,
-        momentum=args.momentum,
-        weight_decay=args.weight_decay,
-        nesterov=args.nest)
-
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -238,9 +249,6 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
-
-    # CUB-200-2011
-    # train_loader, val_loader, _ = data_loader(args)
     train_loader, val_loader, train_sampler = data_loader(args, test_path=True)
 
 
@@ -249,12 +257,15 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
 
+
         # train for one epoch
-        train_acc, train_loss = train(train_loader, model, criterion, optimizer, epoch, args)
+        # train_acc, train_loss = train(train_loader, model, criterion, optimizer, epoch, args)
 
         # evaluate on validation set
-        val_acc1, val_loss = validate(val_loader, model, criterion, epoch, args)
+        # val_acc1, val_loss = validate(val_loader, model, criterion, epoch, args)
 
+        val_acc1, val_acc5, val_loss, \
+        val_gtloc, val_loc = evaluate_loc(val_loader, model, criterion, epoch, args)
 
         if args.gpu == 0:
             writer.add_scalar(args.name + '/train_acc', train_acc, epoch)
@@ -300,7 +311,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     end = time.time()
     length = len(train_loader)
 
-    for i, (image_path, images, target) in enumerate(train_loader):
+    for i, (images, target, image_ids) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -345,7 +356,7 @@ def validate(val_loader, model, criterion, epoch, args):
     model.eval()
     with torch.no_grad():
         end = time.time()
-        for i, (image_path, images, target_in) in enumerate(val_loader):
+        for i, (images, target_in, image_ids) in enumerate(val_loader):
             if args.tencrop:
                 b, n_crop, c, h, w = images.size()
                 images = images.view(-1, c, h, w)
@@ -364,12 +375,15 @@ def validate(val_loader, model, criterion, epoch, args):
             if args.tencrop:
                 logits_A = logits_A.view(b, n_crop, -1).mean(1)
 
-            if args.gpu == 0:
-                loc_map = model.module.generate_localization_map(images)
+            if args.gpu == 0 and i < 3:
+                loc_map = model.module.generate_localization_map(images, args.erase_thr)
                 denormed_image = get_denorm_tensor(images)
                 heatmaps = get_heatmap_tensor(denormed_image, loc_map)
                 file_name = time.strftime('%c', time.localtime(time.time())) + '.jpg'
-                saving_path = os.path.join('save_image', str(epoch)+'_'+file_name)
+                folder_path = os.path.join('save_image', args.name)
+                if not os.path.isdir(folder_path):
+                    os.mkdir(folder_path)
+                saving_path = os.path.join(folder_path, str(epoch)+'_'+file_name)
                 save_image(heatmaps, saving_path, normalize=True)
 
 
@@ -391,6 +405,112 @@ def validate(val_loader, model, criterion, epoch, args):
                   .format(top1=top1, top5=top5))
 
     return top1.avg, losses.avg
+
+def evaluate_loc(val_loader, model, criterion, epoch, args):
+    batch_time = AverageMeter('Time')
+    losses = AverageMeter('Loss')
+    top1 = AverageMeter('Acc@1')
+    top5 = AverageMeter('Acc@5')
+    GT_loc = AverageMeter('GT-Known')
+    top1_loc = AverageMeter('LOC@1')
+    progress = ProgressMeter(
+        len(val_loader),
+        [batch_time, losses, top1, top1_loc, GT_loc],
+        prefix='EVAL: ')
+
+    # image 개별 저장할 때 필요
+    image_names = get_image_name(args.img_dir, file='test.txt')
+    gt_bbox = load_bbox_size(resize_size = args.resize_size,
+                             crop_size = args.crop_size)
+
+    cnt = 0
+    cnt_false = 0
+    hit_known = 0
+    hit_top1 = 0
+
+    model.eval()
+    with torch.no_grad():
+        end = time.time()
+        for i, (images, target, image_ids) in enumerate(val_loader):
+            if args.gpu is not None:
+                images = images.cuda(args.gpu, non_blocking=True)
+
+            target = target.long().cuda(args.gpu, non_blocking=True)
+            image_ids = image_ids.data.cpu().numpy()
+            logits_A, logits_B = model(images, target)
+            loss = criterion.get_loss(logits_A, target)
+
+            acc1, acc5 = accuracy(logits_A, target, topk=(1, 5))
+            losses.update(loss.item(), images.size(0))
+            top1.update(acc1[0], images.size(0))
+            top5.update(acc5[0], images.size(0))
+
+
+            _, pred = output.topk(1, 1, True, True)
+            pred = pred.t()
+            correct = pred.eq(target.view(1, -1).expand_as(pred))
+            wrongs = [c==0 for c in correct.cpu().numpy()][0]
+
+            loc_map = model.module.generate_localization_map(images, args.erase_thr)
+            loc_map = loc_map.cpu().numpy()
+            denorm_image = ((images * 0.22 + 0.45) * 255.0).cpu().\
+                               detach().numpy().transpose([0, 2, 3, 1])[..., ::-1]
+            denorm_image = denorm_image - np.min(denorm_image)
+            denorm_image = denorm_image / np.max(denorm_image) * 255.0
+
+            saving_image = torch.zeros_like(images)
+            for j in range(images.size(0)):
+
+                estimated_bbox, adjusted_gt_bbox, blend_box = \
+                    get_bbox(denorm_image[j],
+                             loc_map[j],
+                             args.cam_thr,
+                             gt_bbox[image_ids[j]],
+                             image_names[image_ids[j]],
+                             args.name,
+                             args.image_save)
+                if i == 0:
+
+                    saving_image[j] = torch.tensor(blend_box.transpose(2,0,1))
+
+                # print(estimated_bbox)
+                IOU_ = calculate_IOU(estimated_bbox, adjusted_gt_bbox)
+                if IOU_ > 0.5 or IOU_ == 0.5:
+                    hit_known = hit_known + 1
+                if (IOU_ > 0.5 or IOU_ == 0.5) and not wrongs[j]:
+                    hit_top1 = hit_top1 + 1
+                if wrongs[j]:
+                    cnt_false += 1
+                cnt += 1
+
+            if i == 0 and args.gpu == 0:
+                saving_folder = os.path.join('image_path', args.name)
+                if not os.path.isdir(saving_folder):
+                    os.makedirs(saving_folder)
+                file_name = time.strftime('%c', time.localtime(time.time())) + '.jpg'
+                saving_path = os.path.join(saving_folder, file_name)
+                save_image(saving_image, saving_path, normalize=True)
+
+            loc_gt = hit_known / cnt * 100
+            loc_top1 = hit_top1 / cnt * 100
+
+            GT_loc.update(loc_gt, images.size(0))
+            top1_loc.update(loc_top1, images.size(0))
+
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if args.gpu == 0 and i % args.print_freq == 0:
+                progress.display(i)
+        if args.gpu == 0:
+            print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f} \
+            Loc@1 {loc1.avg:.3f} gt-known {GT_loc.avg:.3f}'.
+                  format(top1=top1, top5=top5, loc1=top1_loc, GT_loc=GT_loc))
+
+    torch.cuda.empty_cache()
+
+    return top1.avg, top5.avg, losses.avg, GT_loc.avg, top1_loc.avg
+
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from .dataset_cub import dataset
+from .dataset_cub import CUBCamDataset
 
 import torchvision
 import torch
@@ -35,7 +35,7 @@ def data_loader(args, test_path=False):
         if input_size == 0 or crop_size == 0:
             pass
         else:
-            func_transforms.append(transforms.Resize(input_size))
+            func_transforms.append(transforms.Resize((input_size, input_size)))
             func_transforms.append(transforms.CenterCrop(crop_size))
 
         func_transforms.append(transforms.ToTensor())
@@ -43,11 +43,9 @@ def data_loader(args, test_path=False):
 
     tsfm_test = transforms.Compose(func_transforms)
 
-    img_train = dataset(args.train_list, root_dir=args.img_dir,
-                           transform=tsfm_train, with_path=True)
+    img_train = CUBCamDataset(root=args.img_dir, dataset='train.txt', transform=tsfm_train)
 
-    img_test = dataset(args.test_list, root_dir=args.img_dir,
-                          transform=tsfm_test, with_path=test_path)
+    img_test = CUBCamDataset(root=args.img_dir, dataset='test.txt', transform=tsfm_test)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(img_train)

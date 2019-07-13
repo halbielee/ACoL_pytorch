@@ -66,7 +66,8 @@ def get_args():
     parser.add_argument("--test_list", type=str)
     parser.add_argument("--num-classes", type=int, default=1000)
     parser.add_argument('--cam-thr', type=float, default=0.2, help='cam threshold value')
-
+    parser.add_argument('--erase-thr', type=float, default=0.7)
+    parser.add_argument('--image-save', action='store_true')
     # bbox
     parser.add_argument('--resize-size', type=int, default=256, help='validation resize size')
     parser.add_argument('--crop-size', type=int, default=224, help='validation crop size')

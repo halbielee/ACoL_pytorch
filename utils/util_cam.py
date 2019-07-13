@@ -99,8 +99,8 @@ def get_bbox(image, cam, thresh, gt_box, image_name, save_dir='test', isSave=Fal
     thresh: the floating point value (0~1)
     '''
     # resize to original size
-    # image = cv2.resize(image, (224, 224))
-    cam = cv2.resize(cam, (image_size, image_size))
+    # cam = cv2.resize(cam, (image_size, image_size))
+    cam = np.squeeze(cam, axis=0)
 
     # convert to color map
     heatmap = intensity_to_rgb(cam, normalize=True)
@@ -129,7 +129,6 @@ def get_bbox(image, cam, thresh, gt_box, image_name, save_dir='test', isSave=Fal
             cv2.findContours(thred_gray_heatmap, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     # calculate bbox coordinates
-
     rect = []
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
@@ -192,15 +191,6 @@ def main():
     models = getattr(resnet_se, 'se_resnet50')
     model = models(False)
 
-    input = torch.ones((5,3,224,224))
-
-    cam = get_cam(model, input, 'se_resnet')
-
-    input = input.numpy().transpose(0, 2, 3, 1)
-    print(input.shape)
-    for i in range(5):
-        bbox = get_bbox(input[i], cam[i], 0.2)
-        print(bbox)
 
     return
 
