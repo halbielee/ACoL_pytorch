@@ -1,210 +1,181 @@
-import torch
-import os
-from PIL import Image
 from torch.utils.data import Dataset
-
+import numpy as np
+import os
+import torch
+from PIL import Image
 import random
-from collections import Counter
-import argparse
+# from .transforms import functional
+# random.seed(1234)
+# from .transforms import functional
+import cv2
+import math
 
+class dataset(Dataset):
 
-class CUBClsDataset(Dataset):
-    def __init__(self, root=None, dataset=None, transforms=None):
+    """Face Landmarks dataset."""
 
-        self.root = root
-        self.dataset = dataset
-        self.transforms = transforms
-        image_ids = []
-        image_names= []
-        image_labels = []
-        with open(os.path.join(self.root, self.dataset)) as f:
-            for line in f:
-                info = line.strip().split()
-                image_ids.append(int(info[0]))
-                image_names.append(info[1])
-                image_labels.append(int(info[2]))
-        self.image_ids = image_ids
-        self.image_names = image_names
-        self.image_labels = image_labels
-
-    def __getitem__(self, idx):
-        image_name = self.image_names[idx]
-        image_label = self.image_labels[idx]
-        image = Image.open(os.path.join(self.root, 'images/', image_name)).convert('RGB')
-        if self.transforms is not None:
-            image = self.transforms(image)
-        return image, image_label
+    def __init__(self, datalist_file, root_dir, transform=None, with_path=False):
+        """
+        Args:
+            csv_file (string): Path to the csv file with annotations.
+            root_dir (string): Directory with all the images.
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+        """
+        self.root_dir = root_dir
+        self.with_path = with_path
+        self.datalist_file =  datalist_file
+        self.image_list, self.label_list = \
+            self.read_labeled_image_list(self.root_dir, self.datalist_file)
+        self.transform = transform
 
     def __len__(self):
-        return len(self.image_ids)
-
-class CUBCamDataset(Dataset):
-    def __init__(self, root=None, dataset=None, transforms=None):
-
-        self.root = root
-        self.dataset = dataset
-        self.transforms = transforms
-        image_ids = []
-        image_names= []
-        image_labels = []
-        with open(os.path.join(self.root, self.dataset)) as f:
-            for line in f:
-                info = line.strip().split()
-                image_ids.append(int(info[0]))
-                image_names.append(info[1])
-                image_labels.append(int(info[2]))
-        self.image_ids = image_ids
-        self.image_names = image_names
-        self.image_labels = image_labels
+        return len(self.image_list)
 
     def __getitem__(self, idx):
-        image_id = self.image_ids[idx]
-        image_name = self.image_names[idx]
-        image_label = self.image_labels[idx]
-        image = Image.open(os.path.join(self.root, 'images/', image_name)).convert('RGB')
-        if self.transforms is not None:
-            image = self.transforms(image)
-        return image, image_label, image_id
+        #img_name = os.path.join(self.root_dir, self.image_list[idx])
+        img_name =  self.image_list[idx]
+        image = Image.open(img_name).convert('RGB')
+
+        if self.transform is not None:
+            image = self.transform(image)
+
+        if self.with_path:
+            return img_name, image, self.label_list[idx]
+        else:
+            return image, self.label_list[idx]
+
+    def read_labeled_image_list(self, data_dir, data_list):
+        """
+        Reads txt file containing paths to images and ground truth masks.
+
+        Args:
+          data_dir: path to the directory with images and masks.
+          data_list: path to the file with lines of the form '/path/to/image /path/to/mask'.
+
+        Returns:
+          Two lists with all file names for images and masks, respectively.
+        """
+        f = open(data_list, 'r')
+        img_name_list = []
+        img_labels = []
+        for line in f:
+            if ';' in line:
+                image, labels = line.strip("\n").split(';')
+            else:
+                if len(line.strip().split()) == 2:
+                    image, labels = line.strip().split()
+                    if '.' not in image:
+                        image += '.jpg'
+                    labels = int(labels)
+                else:
+                    line = line.strip().split()
+                    image = line[0]
+                    labels = map(int, line[1:])
+            img_name_list.append(os.path.join(data_dir, image))
+            img_labels.append(labels)
+        return img_name_list, np.array(img_labels, dtype=np.float32)
+
+def get_name_id(name_path):
+    name_id = name_path.strip().split('/')[-1]
+    name_id = name_id.strip().split('.')[0]
+    return name_id
+
+class dataset_with_mask(Dataset):
+
+    """Face Landmarks dataset."""
+
+    def __init__(self, datalist_file, root_dir, mask_dir, transform=None, with_path=False):
+        """
+        Args:
+            csv_file (string): Path to the csv file with annotations.
+            root_dir (string): Directory with all the images.
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+        """
+        self.root_dir = root_dir
+        self.mask_dir = mask_dir
+        self.with_path = with_path
+        self.datalist_file =  datalist_file
+        self.image_list, self.label_list = \
+            self.read_labeled_image_list(self.root_dir, self.datalist_file)
+        self.transform = transform
 
     def __len__(self):
-        return len(self.image_ids)
+        return len(self.image_list)
 
+    def __getitem__(self, idx):
+        img_name = os.path.join(self.root_dir, self.image_list[idx])
+        image = Image.open(img_name).convert('RGB')
 
+        mask_name = os.path.join(self.mask_dir, get_name_id(self.image_list[idx])+'.png')
+        mask = cv2.imread(mask_name)
+        mask[mask==0] = 255
+        mask = mask - 1
+        mask[mask==254] = 255
 
+        if self.transform is not None:
+            image = self.transform(image)
 
-def load_image_path(dataset_path):
-    '''
-    return dict{image_id : image_path}
-    '''
-    image_paths = {}
-    with open(os.path.join(dataset_path, 'images.txt')) as f:
+        if self.with_path:
+            return img_name, image, mask, self.label_list[idx]
+        else:
+            return image, mask, self.label_list[idx]
+
+    def read_labeled_image_list(self, data_dir, data_list):
+        """
+        Reads txt file containing paths to images and ground truth masks.
+
+        Args:
+          data_dir: path to the directory with images and masks.
+          data_list: path to the file with lines of the form '/path/to/image /path/to/mask'.
+
+        Returns:
+          Two lists with all file names for images and masks, respectively.
+        """
+        f = open(data_list, 'r')
+        img_name_list = []
+        img_labels = []
         for line in f:
-            image_id, image_path = line.strip().split()
-            image_paths[image_id] = image_path
-    return image_paths
-
-def load_image_label(dataset_path):
-    """
-    return dict{image_id : image_label}
-    """
-    image_labels = {}
-    with open(os.path.join(dataset_path, 'image_class_labels.txt')) as f:
-        for line in f:
-            image_id, label_id = line.strip().split()
-            image_labels[image_id] = int(label_id) - 1
-    return image_labels
-
-def create_image_sizes_file(dataset_path):
-    '''
-    save 'sizes.txt' in forms of
-    [image_id] [width] [height]
-    '''
-    import cv2
-
-    image_paths = load_image_path(dataset_path)
-    image_sizes = []
-    for image_id, image_path in image_paths.items():
-        image = cv2.imread(os.path.join(dataset_path, 'images', image_path))
-        image_sizes.append([image_id, image.shape[1], image.shape[0]])
-    with open(os.path.join(dataset_path, 'sizes.txt'), 'w') as f:
-        for image_id, w, h in image_sizes:
-            f.write("%s %d %d\n" % (str(image_id), w, h))
-
-def load_train_test_split(dataset_path):
-    '''
-    return dict{image_id: 1 for train
-                          0 for test }
-    '''
-    image_train_test = {}
-    with open(os.path.join(dataset_path, 'train_test_split.txt')) as f:
-        for line in f:
-            image_id, is_train = line.strip().split()
-            image_train_test[image_id] = is_train
-    return image_train_test
-
-def split_dataset(dataset_path, fraction_per_class=0.1, shuffle=False):
-    '''
-    save 'train.txt', 'val.txt', 'test.txt'
-    in fomrs of
-    [image_id] [image_name(path)] [image_label]
-    '''
-    image_names = load_image_path(dataset_path)
-    image_labels = load_image_label(dataset_path)
-    image_train_test = load_train_test_split(dataset_path)
-    num_train, num_val, num_test = 0, 0, 0
-    # train_image_ids = []
-    # for image_id in image_names.keys():
-    #     if image_train_test[image_id] == '1':
-    #         train_image_ids.append(image_id)
-    #
-    # subset_train_image_ids = []
-    # val_image_ids = []
-    #
-    # class_labels = [image_labels[image_id] for image_id in train_image_ids]
-    # num_image_per_label = Counter(class_labels)
-    # num_val_image_per_label = {label: 0 for label in num_image_per_label.keys()}
-    #
-    # for label, num_image in num_image_per_label.items():
-    #     if num_image <= 1:
-    #         print("Warning: label %d has only %d images" %(label, image_count))
-    #
-    # if shuffle:
-    #     random.shuffle(train_image_ids)
-    #
-    # for image_id in train_image_ids:
-    #     image_label = image_labels[image_id]
-    #
-    #     if num_val_image_per_label[image_label] < num_image_per_label[image_label] * fraction_per_class:
-    #         val_image_ids.append(image_id)
-    #         num_val_image_per_label[image_label] += 1
-    #     else:
-    #         subset_train_image_ids.append(image_id)
-    #
-    # with open(os.path.join(dataset_path, 'train.txt'), 'w') as f:
-    #     for image_id in subset_train_image_ids:
-    #         f.write("%s %s %s\n" % (image_id, image_names[image_id], image_labels[image_id]))
-    #         num_train += 1
-    # with open(os.path.join(dataset_path, 'val.txt'), 'w') as f:
-    #     for image_id in val_image_ids:
-    #         f.write("%s %s %s\n" % (image_id, image_names[image_id], image_labels[image_id]))
-    #         num_val += 1
-    with open(os.path.join(dataset_path, 'train.txt'), 'w') as f:
-        for image_id in image_names.keys():
-            if image_train_test[image_id] == '1':
-                f.write("%s %s %s\n" % (image_id, image_names[image_id], image_labels[image_id]))
-                num_train += 1
-    with open(os.path.join(dataset_path, 'test.txt'), 'w') as f:
-        for image_id in image_names.keys():
-            if image_train_test[image_id] == '0':
-                f.write("%s %s %s\n" % (image_id, image_names[image_id], image_labels[image_id]))
-                num_test += 1
-
-    print('%d train data is saved in \'%s\\train.txt\'.\n' % (num_train, dataset_path))
-    # print('%d val data is saved in \'%s\\val.txt\'.\n' % (num_val, dataset_path))
-    print('%d test data is saved in \'%s\\test.txt\'.\n' % (num_test, dataset_path))
+            if ';' in line:
+                image, labels = line.strip("\n").split(';')
+            else:
+                if len(line.strip().split()) == 2:
+                    image, labels = line.strip().split()
+                    if '.' not in image:
+                        image += '.jpg'
+                    labels = int(labels)
+                else:
+                    line = line.strip().split()
+                    image = line[0]
+                    labels = map(int, line[1:])
+            img_name_list.append(os.path.join(data_dir, image))
+            img_labels.append(labels)
+        return img_name_list, np.array(img_labels, dtype=np.float32)
 
 
-def get_image_name(dataset_path, file):
-    '''
-    return dict{image_id: image name}
-    '''
-    image_names = {}
-    with open(os.path.join(dataset_path, file)) as f:
-        for line in f:
-            image_id, image_name, image_label = line.strip().split()
-            image_names[int(image_id)] = image_name
-    return image_names
+if __name__ == '__main__':
+    # datalist = '/data/zhangxiaolin/data/INDOOR67/list/indoor67_train_img_list.txt';
+    # data_dir = '/data/zhangxiaolin/data/INDOOR67/Images'
+    # datalist = '/data/zhangxiaolin/data/STANFORD_DOG120/list/train.txt';
+    # data_dir = '/data/zhangxiaolin/data/STANFORD_DOG120/Images'
+    # datalist = '/data/zhangxiaolin/data/VOC2012/list/train_softmax.txt';
+    # data_dir = '/data/zhangxiaolin/data/VOC2012'
+    datalist = '../data/COCO14/list/train_onehot.txt';
+    data_dir = '../data/COCO14/images'
 
+    data = dataset(datalist, data_dir)
 
-parser = argparse.ArgumentParser(description='CUB dataset list generation.')
-parser.add_argument('data', metavar='DIR', help='path to dataset')
-def main():
-    # dataset_path = 'datasets/CUB_200_2011/CUB_200_2011'
-    # split_dataset(dataset_path)
-    args = parser.parse_args()
-    split_dataset(args.data)
-    # create_image_sizes_file(dataset_path)
+    img_mean = np.zeros((len(data), 3))
+    img_std = np.zeros((len(data), 3))
+    for idx in range(len(data)):
+        img, _ = data[idx]
+        numpy_img = np.array(img)
+        per_img_mean = np.mean(numpy_img, axis=(0,1))/255.0
+        per_img_std = np.std(numpy_img, axis=(0,1))/255.0
 
-if __name__ == "__main__":
+        img_mean[idx] = per_img_mean
+        img_std[idx] = per_img_std
 
-    main()
+    print(np.mean(img_mean, axis=0), np.mean(img_std, axis=0))
+

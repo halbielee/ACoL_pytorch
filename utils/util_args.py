@@ -1,12 +1,12 @@
 import os
 import argparse
 
+ROOT_DIR = '/'.join(os.getcwd().split('/')[:-1])
 def get_args():
 
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-    parser.add_argument('--data', metavar='DIR',
-                        default='/workspace/PascalVOC/VOCdevkit/VOC2012/',
-                        help='path to dataset')
+    parser.add_argument("--root_dir", type=str, default=ROOT_DIR,
+                        help='Root dir for the project')
     parser.add_argument('-a', '--arch', metavar='ARCH', default='vgg16',
                         help='model architecture: default: resnet18)')
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
@@ -60,9 +60,11 @@ def get_args():
     parser.add_argument('--name', type=str, default='test_case')
     parser.add_argument('--nest', action='store_true')
 
-    # ADL
-
-    parser.add_argument('--image-save', action='store_true')
+    parser.add_argument("--img_dir", type=str, default='',
+                        help='Directory of training images')
+    parser.add_argument("--train_list", type=str)
+    parser.add_argument("--test_list", type=str)
+    parser.add_argument("--num-classes", type=int, default=1000)
     parser.add_argument('--cam-thr', type=float, default=0.2, help='cam threshold value')
 
     # bbox

@@ -25,54 +25,7 @@ def get_cam(model, input, net_type):
     Output is cam tensor for the input and output
     shape: batch_size x 14 x 14
     '''
-    global features_blobs, fc_blobs
 
-    if 'se_resnet' in net_type:
-        try:
-            feature_hook = model.layer4.register_forward_hook(hook_feature)
-            fc_hook = model.fc.register_forward_hook(hook_fc)
-        except:
-            feature_hook = model.module.layer4.register_forward_hook(hook_feature)
-            fc_hook = model.module.fc.register_forward_hook(hook_fc)
-    elif 'vgg' in net_type:
-        try:
-            feature_hook = model.relu.register_forward_hook(hook_feature)
-            fc_hook = model.fc.register_forward_hook(hook_fc)
-        except:
-            feature_hook = model.module.relu.register_forward_hook(hook_feature)
-            fc_hook = model.module.fc.register_forward_hook(hook_fc)
-
-    _ = model(input)
-    feature_hook.remove()
-    fc_hook.remove()
-    if 'resnet' in net_type:
-        try:
-            fc_weight = model.fc.weight.squeeze()
-        except:
-            fc_weight = model.module.fc.weight.squeeze()
-    if 'se_resnet' in net_type:
-        try:
-            fc_weight = model.fc.weight.squeeze()
-        except:
-            fc_weight = model.module.fc.weight.squeeze()
-    elif 'vgg' in net_type:
-        try:
-            fc_weight = model.fc.weight.squeeze()
-        except:
-            fc_weight = model.module.fc.weight.squeeze()
-    else:
-        raise Exception("I am sorry, We are preparing for this.")
-
-    feature_blob = torch.cat(features_blobs, 0)
-    fc_blob = torch.cat(fc_blobs, 0)
-    features_blobs.clear()
-    fc_blobs.clear()
-    pred = fc_blob.topk(1, 1, True, True)[1]
-    pred_weight = fc_weight[pred, :]
-    pred_weight = pred_weight.view(pred_weight.size(0), -1).unsqueeze(2).unsqueeze(3)
-
-    cam = (pred_weight * feature_blob).detach().cpu().numpy()
-    cam = cam.mean(1).squeeze()
     return cam
 
 
