@@ -73,6 +73,7 @@ def get_args():
     parser.add_argument('--crop-size', type=int, default=224, help='validation crop size')
     parser.add_argument('--test', action='store_true', help='If true, only evaluation.')
     parser.add_argument('--tencrop', action='store_true')
+    parser.add_argument('--validation', type=str, default='val')
     args = parser.parse_args()
 
     return args

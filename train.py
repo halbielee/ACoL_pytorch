@@ -179,9 +179,9 @@ def main_worker(gpu, ngpus_per_node, args):
         raise Exception("Fail to recognize the architecture")
 
     if args.pretrained:
-        model = models(pretrained=True)
+        model = models(pretrained=True, writer=writer, args=args)
     else:
-        model = models(pretrained=False)
+        model = models(pretrained=False, writer=writer, args=args)
 
     # define loss function (criterion) and optimizer
     criterion = Loss(args.gpu)
@@ -196,7 +196,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     optimizer = torch.optim.SGD([
         {'params': param_features, 'lr': args.lr},
-        {'params': param_classifier, 'lr': args.lr*10}],
+        {'params': param_classifier, 'lr': args.lr*args.lr_ratio}],
         momentum=args.momentum,
         weight_decay=args.weight_decay,
         nesterov=args.nest)
@@ -259,13 +259,15 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
         # train for one epoch
-        # train_acc, train_loss = train(train_loader, model, criterion, optimizer, epoch, args)
+        train_acc, train_loss = train(train_loader, model, criterion, optimizer, epoch, args)
 
         # evaluate on validation set
-        # val_acc1, val_loss = validate(val_loader, model, criterion, epoch, args)
+        if args.validation == 'val':
+            val_acc1, val_loss = validate(val_loader, model, criterion, epoch, args)
 
-        val_acc1, val_acc5, val_loss, \
-        val_gtloc, val_loc = evaluate_loc(val_loader, model, criterion, epoch, args)
+        if args.validation == 'eval':
+            val_acc1, val_acc5, val_loss, \
+            val_gtloc, val_loc = evaluate_loc(val_loader, model, criterion, epoch, args, writer)
 
         if args.gpu == 0:
             writer.add_scalar(args.name + '/train_acc', train_acc, epoch)
@@ -376,7 +378,7 @@ def validate(val_loader, model, criterion, epoch, args):
                 logits_A = logits_A.view(b, n_crop, -1).mean(1)
 
             if args.gpu == 0 and i < 3:
-                loc_map = model.module.generate_localization_map(images, args.erase_thr)
+                loc_map = model.module.generate_localization_map(images, thr_val=args.erase_thr)
                 denormed_image = get_denorm_tensor(images)
                 heatmaps = get_heatmap_tensor(denormed_image, loc_map)
                 file_name = time.strftime('%c', time.localtime(time.time())) + '.jpg'
@@ -406,7 +408,7 @@ def validate(val_loader, model, criterion, epoch, args):
 
     return top1.avg, losses.avg
 
-def evaluate_loc(val_loader, model, criterion, epoch, args):
+def evaluate_loc(val_loader, model, criterion, epoch, args, writer):
     batch_time = AverageMeter('Time')
     losses = AverageMeter('Loss')
     top1 = AverageMeter('Acc@1')
@@ -438,7 +440,7 @@ def evaluate_loc(val_loader, model, criterion, epoch, args):
             target = target.long().cuda(args.gpu, non_blocking=True)
             image_ids = image_ids.data.cpu().numpy()
             logits_A, logits_B = model(images, target)
-            loss = criterion.get_loss(logits_A, target)
+            loss = criterion.get_loss(logits_A, logits_B, target)
 
             acc1, acc5 = accuracy(logits_A, target, topk=(1, 5))
             losses.update(loss.item(), images.size(0))
@@ -446,12 +448,12 @@ def evaluate_loc(val_loader, model, criterion, epoch, args):
             top5.update(acc5[0], images.size(0))
 
 
-            _, pred = output.topk(1, 1, True, True)
+            _, pred = logits_A.topk(1, 1, True, True)
             pred = pred.t()
             correct = pred.eq(target.view(1, -1).expand_as(pred))
             wrongs = [c==0 for c in correct.cpu().numpy()][0]
 
-            loc_map = model.module.generate_localization_map(images, args.erase_thr)
+            loc_map = model.module.generate_localization_map(images, thr_val=args.erase_thr)
             loc_map = loc_map.cpu().numpy()
             denorm_image = ((images * 0.22 + 0.45) * 255.0).cpu().\
                                detach().numpy().transpose([0, 2, 3, 1])[..., ::-1]

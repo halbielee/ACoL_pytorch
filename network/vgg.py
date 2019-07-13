@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
-
+import os
 from torch.utils.model_zoo import load_url
+from torchvision.utils import make_grid, save_image
 
 
 __all__ = [
@@ -23,7 +24,7 @@ model_urls = {
 
 class VGG(nn.Module):
 
-    def __init__(self, features, num_classes=1000, init_weights=True, writer=None):
+    def __init__(self, features, num_classes=1000, init_weights=True, writer=None, args=None):
         super(VGG, self).__init__()
         self.features = features
 
@@ -34,7 +35,11 @@ class VGG(nn.Module):
         if init_weights:
             self._initialize_weights()
         self.writer = writer
+        self.args = args
+        self.iter = 0
+        self.iter2 = 0
     def forward(self, x, label=None, thr_val=0.7):
+        self.iter += 1
         # Backbone
         feature = self.features(x)
 
@@ -48,6 +53,7 @@ class VGG(nn.Module):
         logits_A = logits_A.view(b, c)
 
         if label is None:
+            print('label is none')
             _, label = torch.max(logits_A, dim=1)
 
         # generate attention map
@@ -61,13 +67,30 @@ class VGG(nn.Module):
         logits_B = self.GlobalAvgPool(feature_map_B)
         b, c, _, _ = logits_B.size()
         logits_B = logits_B.view(b, c)
+
+        if self.training:
+            if self.iter % 90 == 0 and self.args.gpu == 0 and self.args.image_save:
+                file_path = os.path.join('image_path', self.args.name)
+                if not os.path.isdir(file_path):
+                    os.mkdir(file_path)
+                file_name1 = os.path.join(file_path, str(self.iter)+'_attention.jpg')
+
+                save_image2 = torch.mean(erased_feature.detach().cpu(), dim=1, keepdim=True)
+                concat = torch.cat((attention_map.cpu().unsqueeze(1), save_image2), dim=3)
+
+                save_image(concat, file_name1)
+
         return logits_A, logits_B
 
-    def get_attention_map(self, feature_map, label):
+    def get_attention_map(self, feature_map, label, normalize=True):
         label = label.long()
         b = feature_map.size(0)
 
         attention_map = feature_map[range(b),label,:,:]
+
+        if normalize:
+            attention_map = self.normalize_attention(attention_map)
+
         return attention_map
 
     def erase_attention(self, feature, attention_map, thr_val):
@@ -78,23 +101,27 @@ class VGG(nn.Module):
         mask[pos.data] = 0.
         mask = torch.unsqueeze(mask, dim=1)
 
+        if self.training:
+            save_image2 = make_grid(mask.detach())
+            self.writer.add_image(self.args.name + '/erased_map', save_image2, 0)
         # erase feature
         erased_feature = feature * mask
         return erased_feature
 
     def normalize_attention(self, attention_map):
-        b, c, h, w = attention_map.size()
+        map_size = attention_map.size()
 
-        aggregated_attention_map = attention_map.view(b,c,-1)
+        aggregated_attention_map = attention_map.view(map_size[0], map_size[1],-1)
         minimum, _ = torch.min(aggregated_attention_map, dim=-1, keepdim=True)
         maximum, _ = torch.max(aggregated_attention_map, dim=-1, keepdim=True)
         normalized_attention_map = torch.div(aggregated_attention_map - minimum,
                                              maximum - minimum)
-        normalized_attention_map = normalized_attention_map.view(b,c,h,w)
+        normalized_attention_map = normalized_attention_map.view(map_size)
 
         return normalized_attention_map
 
     def generate_localization_map(self, x, label=None, thr_val=0.5):
+        self.iter2 += 1
         # Backbone
         feature = self.features(x)
         # F.avg_pool2d? why?
@@ -121,10 +148,22 @@ class VGG(nn.Module):
         map_A = self.normalize_attention(feature_map_A)
         map_B = self.normalize_attention(feature_map_B)
         aggregated_map = torch.max(map_A, map_B).detach().cpu()
+
+        if self.iter2 % 90 == 0 and self.args.gpu == 0 and self.args.image_save:
+
+            compare_img = torch.cat((map_A.detach().cpu(), map_B.detach().cpu(), aggregated_map), dim=3)
+
+            file_path = os.path.join('image_path', self.args.name)
+            if not os.path.isdir(file_path):
+                os.mkdir(file_path)
+            file_name1 = os.path.join(file_path, str(self.iter) + '_concat.jpg')
+            save_image(compare_img, file_name1, normalize=True, nrow=4)
+
         upsampled_map = torch.nn.functional.interpolate(aggregated_map,
                                                         size=(224,224),
                                                         mode='bilinear',
                                                         align_corners=True)
+
         return upsampled_map
 
     def _initialize_weights(self):
@@ -181,10 +220,10 @@ cfgs = {
 }
 
 
-def _vgg(arch, cfg, batch_norm, pretrained, progress, **kwargs):
+def _vgg(arch, cfg, batch_norm, pretrained, progress, writer, args, **kwargs):
     if pretrained:
         kwargs['init_weights'] = False
-    model = VGG(make_layers(cfgs[cfg], batch_norm=batch_norm), **kwargs)
+    model = VGG(make_layers(cfgs[cfg], batch_norm=batch_norm), writer=writer, args=args, **kwargs)
     if pretrained:
         state_dict = load_url(model_urls[arch], progress=progress)
         state_dict = remove_layer(state_dict, 'classifier.')
@@ -240,14 +279,14 @@ def vgg13_bn(pretrained=False, progress=True, **kwargs):
     return _vgg('vgg13_bn', 'B', True, pretrained, progress, **kwargs)
 
 
-def vgg16(pretrained=False, progress=True, **kwargs):
+def vgg16(pretrained=False, progress=True, writer=None, args=None, **kwargs):
     r"""VGG 16-layer model (configuration "D")
     `"Very Deep Convolutional Networks For Large-Scale Image Recognition" <https://arxiv.org/pdf/1409.1556.pdf>'_
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg('vgg16', 'ACoL', False, pretrained, progress, **kwargs)
+    return _vgg('vgg16', 'ACoL', False, pretrained, progress, writer, args, **kwargs)
 
 
 def vgg16_bn(pretrained=False, progress=True, **kwargs):
