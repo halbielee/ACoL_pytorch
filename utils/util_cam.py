@@ -3,40 +3,64 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 import torch
 import cv2
 import numpy as np
-from network import resnet_se
 import matplotlib.pyplot as plt
 
-
-features_blobs = []
-fc_blobs = []
-
-
-def hook_feature(model, input, output):
-    features_blobs.append(output)
-
-
-def hook_fc(model, input, output):
-    fc_blobs.append(output)
-
-
-def get_cam(model, input, net_type):
+def get_cam(model, input, label, thr_val):
     '''
     Get cam tensor from the model and input, for the position of cam net_type is necessary.
     Output is cam tensor for the input and output
-    shape: batch_size x 14 x 14
+    shape: batch_size x 28 x 28
     '''
 
+    cam = model.generate_localization_map(input, label, thr_val)
     return cam
+
+
+def get_denorm_tensor(images):
+    b, c, h, w = images.shape
+
+    denormed_image = ((images.cpu().detach() * 0.22 + 0.45) * 255.)
+
+    denormed_image = denormed_image.view(b, c, -1)
+    minimum, _ = torch.min(denormed_image, dim=-1, keepdim=True)
+    maximum, _ = torch.max(denormed_image, dim=-1, keepdim=True)
+
+    denormed_image = torch.div(denormed_image - minimum,
+                               (maximum - minimum))
+
+    denormed_image = denormed_image.view(b,c,h,w)
+
+    return denormed_image
+
+
+def get_heatmap_tensor(images, masks):
+    '''
+    b, 3, 224, 224
+    b, 1, 224, 224
+    '''
+    saving_tensor = torch.zeros_like(images)
+
+    images = images.squeeze(0).cpu().numpy().transpose(0,2,3,1)
+    b, _, h, w = masks.shape
+    masks = masks.squeeze(1).cpu().numpy()
+
+    for i in range(b):
+        image = images[i]
+        mask = masks[i]
+        heatmap = get_heatmap(image, mask)
+        saving_tensor[i] = torch.tensor(heatmap.transpose(2,0,1))
+    return saving_tensor
 
 
 def get_heatmap(image, mask):
     mask = mask - np.min(mask)
     mask = mask / np.max(mask)
     heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
     heatmap = np.float32(heatmap) / 255
-    cam = heatmap + np.float32(image) / 255
-    cam = cam / np.max(cam)
-    return heatmap * 255., cam * 255.
+    heatmap = heatmap + np.float32(image)
+    heatmap = heatmap / np.max(heatmap)
+    return heatmap * 255.
 
 
 def large_rect(rect):

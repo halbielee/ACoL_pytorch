@@ -81,6 +81,19 @@ def get_name_id(name_path):
     name_id = name_id.strip().split('.')[0]
     return name_id
 
+
+def get_image_name(dataset_path, file):
+    '''
+    return dict{image_id: image name}
+    '''
+    image_names = {}
+    with open(os.path.join(dataset_path, file)) as f:
+        for line in f:
+            image_id, image_name, image_label = line.strip().split()
+            image_names[int(image_id)] = image_name
+    return image_names
+
+
 class dataset_with_mask(Dataset):
 
     """Face Landmarks dataset."""

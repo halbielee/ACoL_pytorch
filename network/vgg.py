@@ -35,7 +35,6 @@ class VGG(nn.Module):
             self._initialize_weights()
 
     def forward(self, x, label=None):
-
         # Backbone
         feature = self.features(x)
 
@@ -62,7 +61,6 @@ class VGG(nn.Module):
         logits_B = self.GlobalAvgPool(feature_map_B)
         b, c, _, _ = logits_B.size()
         logits_B = logits_B.view(b, c)
-
         return logits_A, logits_B
 
     def get_attention_map(self, feature_map, label):
@@ -96,10 +94,37 @@ class VGG(nn.Module):
 
         return normalized_attention_map
 
-    def generate_localization_map(self):
-        map_A = self.normalized_attention(self.attention_map_A)
-        map_B = self.normalized_attention(self.attention_map_B)
-        return torch.max(map_A, map_B)
+    def generate_localization_map(self, x, label=None, thr_val=0.5):
+        # Backbone
+        feature = self.features(x)
+        # F.avg_pool2d? why?
+
+        # Branch A
+        feature_map_A = self.classifier_A(feature)
+        logits_A = self.GlobalAvgPool(feature_map_A)
+        b, c, _, _ = logits_A.size()
+        logits_A = logits_A.view(b, c)
+
+        if label is None:
+            _, label = torch.max(logits_A, dim=1)
+
+        # generate attention map
+        attention_map = self.get_attention_map(feature_map_A, label)
+        # erasing step
+        erased_feature = self.erase_attention(feature, attention_map, thr_val)
+
+        # Branch B
+        feature_map_B = self.classifier_B(erased_feature)
+
+        feature_map_A = self.get_attention_map(feature_map_A, label).unsqueeze(1)
+        feature_map_B = self.get_attention_map(feature_map_B, label).unsqueeze(1)
+        map_A = self.normalize_attention(feature_map_A)
+        map_B = self.normalize_attention(feature_map_B)
+        aggregated_map = torch.max(map_A, map_B).detach().cpu()
+        upsampled_map = torch.nn.functional.interpolate(aggregated_map,
+                                                        size=(224,224),
+                                                        mode='bilinear')
+        return upsampled_map
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -151,7 +176,7 @@ cfgs = {
     'B': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
     'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
     'E': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
-    'ACol' : [64, 64, 'M1', 128, 128, 'M1', 256, 256, 256, 'M1', 512, 512, 512, 'M2', 512, 512, 512, 'M2'],
+    'ACoL' : [64, 64, 'M1', 128, 128, 'M1', 256, 256, 256, 'M1', 512, 512, 512, 'M2', 512, 512, 512, 'M2'],
 }
 
 
@@ -221,7 +246,7 @@ def vgg16(pretrained=False, progress=True, **kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg('vgg16', 'D', False, pretrained, progress, **kwargs)
+    return _vgg('vgg16', 'ACoL', False, pretrained, progress, **kwargs)
 
 
 def vgg16_bn(pretrained=False, progress=True, **kwargs):

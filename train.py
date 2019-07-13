@@ -25,6 +25,7 @@ from utils.util_args import get_args
 
 from utils.util_loss import Loss
 from utils.util_loader import data_loader
+from utils.util_cam import *
 
 best_acc1 = 0
 best_loc1 = 0
@@ -362,6 +363,14 @@ def validate(val_loader, model, criterion, epoch, args):
 
             if args.tencrop:
                 logits_A = logits_A.view(b, n_crop, -1).mean(1)
+
+            if args.gpu == 0:
+                loc_map = model.module.generate_localization_map(images)
+                denormed_image = get_denorm_tensor(images)
+                heatmaps = get_heatmap_tensor(denormed_image, loc_map)
+                file_name = time.strftime('%c', time.localtime(time.time())) + '.jpg'
+                saving_path = os.path.join('save_image', str(epoch)+'_'+file_name)
+                save_image(heatmaps, saving_path, normalize=True)
 
 
             # measure accuracy and record loss
