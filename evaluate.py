@@ -252,180 +252,19 @@ def main_worker(gpu, ngpus_per_node, args):
     train_loader, val_loader, train_sampler = data_loader(args, test_path=True)
 
 
-    for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
-            train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, epoch, args)
-
-
-        # train for one epoch
-        train_acc, train_loss = train(train_loader, model, criterion, optimizer, epoch, args)
-
-        # evaluate on validation set
-        if args.validation == 'val':
-            val_acc1, val_loss = validate(val_loader, model, criterion, epoch, args)
-
-
-        if args.validation == 'eval':
-            val_acc1, val_acc5, val_loss, \
-            val_gtloc, val_loc = evaluate_loc(val_loader, model, criterion, epoch, args, writer)
-
-
-        if args.gpu == 0:
-            writer.add_scalar(args.name + '/train_acc', train_acc, epoch)
-            writer.add_scalar(args.name + '/train_loss', train_loss, epoch)
-            writer.add_scalar(args.name + '/val_cls_acc', val_acc1, epoch)
-            writer.add_scalar(args.name + '/val_loss', val_loss, epoch)
-            writer.add_scalar(args.name + '/val_loc_acc', val_loc, epoch)
-            writer.add_scalar(args.name + '/val_gtloc', val_gtloc, epoch)
-
-        # remember best acc@1 and save checkpoint
-        is_best = val_acc1 > best_acc1
-        best_acc1 = max(val_acc1, best_acc1)
-        if is_best:
-            loc1_at_best_acc1 = val_loc
-            gtknown_at_best_acc1 = val_gtloc
-
-
-        # in case best loc,, Not using this.
-        is_best_loc = val_loc > best_loc1
-        best_loc1 = max(val_loc, best_loc1)
-        if is_best_loc:
-            acc1_at_best_loc1 = val_acc1
-            gtknown_at_best_loc1 = val_loc
-
-
-        if args.gpu == 0:
-            print("Until %d epochs, Best Acc@1 %.3f\tloc@1 %.3f\tgt-known %.3f" %
-                  (epoch+1, best_acc1, loc1_at_best_acc1, gtknown_at_best_acc1))
-            print("Until %d epochs, Best Loc@1 %.3f\tacc@1 %.3f\tgt-known %.3f" %
-                  (epoch+1, best_loc1, acc1_at_best_loc1, gtknown_at_best_loc1))
-
-        if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
-            saving_dir = os.path.join(args.save_dir, args.name)
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': args.arch,
-                'state_dict': model.state_dict(),
-                'best_acc1': best_acc1,
-                'optimizer' : optimizer.state_dict(),
-            }, is_best, saving_dir)
 
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args):
-
-    batch_time = AverageMeter('Time', ':6.3f')
-    data_time = AverageMeter('Data', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
-    progress = ProgressMeter(
-        len(train_loader),
-        [batch_time, data_time, losses, top1, top5],
-        prefix="Epoch: [{}]".format(epoch))
-
-    # switch to train mode
-    model.train()
-
-    end = time.time()
-    length = len(train_loader)
-
-    for i, (images, target, image_ids) in enumerate(train_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        target = target.long().cuda(args.gpu, non_blocking=True)
-
-        # compute output
-        logits, feature_maps = model(images, target)
-        loss = criterion.get_loss(logits[0], logits[1], target)
-
-        # measure accuracy and record loss
-        acc1, acc5 = accuracy(logits[0], target, topk=(1, 5))
-        losses.update(loss.item(), images.size(0))
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        if i % args.print_freq == 0:
-            progress.display(i)
-    return top1.avg, losses.avg
+    val_acc1, val_acc5, val_loss, \
+    val_gtloc, val_loc = evaluate_loc(val_loader, model, criterion, 0, args, writer)
 
 
-def validate(val_loader, model, criterion, epoch, args):
-    batch_time = AverageMeter('Time', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
-    progress = ProgressMeter(
-        len(val_loader),
-        [batch_time, losses, top1, top5],
-        prefix='Test: ')
-
-    # switch to evaluate mode
-    model.eval()
-    with torch.no_grad():
-        end = time.time()
-        for i, (images, target_in, image_ids) in enumerate(val_loader):
-            if args.tencrop:
-                b, n_crop, c, h, w = images.size()
-                images = images.view(-1, c, h, w)
-                target_input = target_in.repeat(10, 1)
-                target = target_input.view(-1)
-            else:
-                target = target_in
-            if args.gpu is not None:
-                images = images.cuda(args.gpu, non_blocking=True)
-            target = target.long().cuda(args.gpu, non_blocking=True)
-
-            # compute output
-            logits_A, logits_B = model(images, target)
-            loss = criterion.get_loss(logits_A, logits_B, target)
-
-            if args.tencrop:
-                logits_A = logits_A.view(b, n_crop, -1).mean(1)
-
-            if args.gpu == 0 and i < 3:
-                loc_map = model.module.generate_localization_map(images, thr_val=args.erase_thr)
-                denormed_image = get_denorm_tensor(images)
-                heatmaps = get_heatmap_tensor(denormed_image, loc_map)
-                file_name = time.strftime('%c', time.localtime(time.time())) + '.jpg'
-                folder_path = os.path.join('save_image', args.name)
-                if not os.path.isdir(folder_path):
-                    os.mkdir(folder_path)
-                saving_path = os.path.join(folder_path, str(epoch)+'_'+file_name)
-                save_image(heatmaps, saving_path, normalize=True)
+    if args.gpu == 0:
+        print("Best Acc@1 %.3f\tloc@1 %.3f\tgt-known %.3f" %
+              (val_acc1, val_loc, val_gtloc))
 
 
-            # measure accuracy and record loss
-            acc1, acc5 = accuracy(logits_A, target, topk=(1, 5))
-            losses.update(loss.item(), images.size(0))
-            top1.update(acc1[0], images.size(0))
-            top5.update(acc5[0], images.size(0))
-            # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
 
-            if args.gpu == 0 and i % args.print_freq == 0:
-                progress.display(i)
-
-        # TODO: this should also be done with the ProgressMeter
-        if args.gpu == 0:
-            print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
-                  .format(top1=top1, top5=top5))
-
-    return top1.avg, losses.avg
 
 def evaluate_loc(val_loader, model, criterion, epoch, args, writer):
     batch_time = AverageMeter('Time')
@@ -543,7 +382,7 @@ def evaluate_loc(val_loader, model, criterion, epoch, args, writer):
                 saving_image[j] = torch.tensor(cammed.transpose(2, 0, 1))
 
 
-            if epoch % 2 == 0 and args.gpu == 0 and i < 3:
+            if args.gpu == 0:
                 saving_folder = os.path.join('image_path', args.name)
                 if not os.path.isdir(saving_folder):
                     os.makedirs(saving_folder)

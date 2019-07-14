@@ -38,6 +38,7 @@ class VGG(nn.Module):
         self.args = args
         self.iter = 0
         self.iter2 = 0
+
     def forward(self, x, label=None, thr_val=0.7):
         self.iter += 1
         # Backbone
@@ -80,7 +81,7 @@ class VGG(nn.Module):
 
                 save_image(concat, file_name1)
 
-        return logits_A, logits_B
+        return [logits_A, logits_B], [feature_map_A, feature_map_B]
 
     def get_attention_map(self, feature_map, label, normalize=True):
         label = label.long()
@@ -149,7 +150,7 @@ class VGG(nn.Module):
         map_B = self.normalize_attention(feature_map_B)
         aggregated_map = torch.max(map_A, map_B).detach().cpu()
 
-        if self.iter2 % 90 == 0 and self.args.gpu == 0 and self.args.image_save:
+        if self.iter2 % 10 == 0 and self.args.gpu == 0 and self.args.image_save:
 
             compare_img = torch.cat((map_A.detach().cpu(), map_B.detach().cpu(), aggregated_map), dim=3)
 
