@@ -42,14 +42,14 @@ bash evaluate.sh
 
 
 
-#### Performance
+#### Performance(with trained model)
 
 | Name     | Acc1 | Acc5 | Top1_LOC | GT-known | condition                                    |
 | -------- | ---- | ---- | -------- | ------- | -------------------------------------------- |
-| train_1  | 75.337 | 92.492 | 48.155   | 63.616   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
-| train_2  | 75.768 | 92.717 | 48.887   | 64.617   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
-| train_3  | 75.923 | 92.544 | 49.212 | 64.076 | batch 32, lr 0.001, wd 1e-4, 60/200, thr 0.7 |
-| train_4  | 77.097 | 92.475 | 50.935 | 64.863 | batch 32, lr 0.001, wd 1e-4, 60/200, thr 0.7 |
+| [train_1](https://drive.google.com/open?id=1ABbzUWRFtJYa5ZXBb0SS5t79lBWv8S9K) | 75.337 | 92.492 | 48.155   | 63.616   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
+| [train_2](https://drive.google.com/open?id=1IWMZMJ8LnWiaA-SOA7fLHKm7WMOQqvkP) | 75.768 | 92.717 | 48.887   | 64.617   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
+| [train_3](https://drive.google.com/open?id=1Wg5pvd_uRiv-uhbPkYiD1glvj6sIRDuS) | 75.923 | 92.544 | 49.212 | 64.076 | batch 32, lr 0.001, wd 1e-4, 60/200, thr 0.7 |
+| [train_4](https://drive.google.com/open?id=1PdHHO91AGD-ySMde0a_Vy-k9R1bnXB7X) | 77.097 | 92.475 | 50.935 | 64.863 | batch 32, lr 0.001, wd 1e-4, 60/200, thr 0.7 |
 | train_5  | 75.233 | 91.905 | 46.284 | 61.794 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 |
 | train_6  | 75.820 | 91.992 | 49.236 | 64.708 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 |
 | train_7  | 73.990 | 91.163 | 42.404 | 56.433 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 / (crop_size 224, resize_size 224) |
