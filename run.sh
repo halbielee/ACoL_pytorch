@@ -1,4 +1,4 @@
-gpu=5
+gpu=0
 name=train_6
 epoch=250
 decay=70
@@ -16,5 +16,5 @@ CUDA_VISIBLE_DEVICES=${gpu} python train.py -a ${model} --dist-url ${server} \
 --erase-thr 0.7 \
 --validation eval \
 --num-classes=200 \
---img_dir=../CUB_200_2011/CUB_200_2011/ \
+--img_dir=../CUB_200_2011/ \
 --batch-size ${batch} --epochs ${epoch} --LR-decay ${decay} --wd ${wd} --lr ${lr} --nest --name ${name}

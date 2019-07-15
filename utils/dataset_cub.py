@@ -17,7 +17,7 @@ class CUBClsDataset(Dataset):
         image_ids = []
         image_names= []
         image_labels = []
-        with open(os.path.join(self.root, self.dataset)) as f:
+        with open(os.path.join('datalist/CUB', self.dataset)) as f:
             for line in f:
                 info = line.strip().split()
                 image_ids.append(int(info[0]))
@@ -47,7 +47,7 @@ class CUBCamDataset(Dataset):
         image_ids = []
         image_names= []
         image_labels = []
-        with open(os.path.join(self.root, self.dataset)) as f:
+        with open(os.path.join('datalist/CUB', self.dataset)) as f:
             for line in f:
                 info = line.strip().split()
                 image_ids.append(int(info[0]))

@@ -441,7 +441,8 @@ def evaluate_loc(val_loader, model, criterion, epoch, args, writer):
 
     # image 개별 저장할 때 필요
     image_names = get_image_name(args.img_dir, file='test.txt')
-    gt_bbox = load_bbox_size(resize_size = args.resize_size,
+    gt_bbox = load_bbox_size(dataset_path = args.img_dir,
+                             resize_size = args.resize_size,
                              crop_size = args.crop_size)
 
     cnt = 0
