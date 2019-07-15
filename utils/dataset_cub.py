@@ -189,7 +189,7 @@ def get_image_name(dataset_path, file):
     return dict{image_id: image name}
     '''
     image_names = {}
-    with open(os.path.join(dataset_path, file)) as f:
+    with open(os.path.join('datalist/CUB', file)) as f:
         for line in f:
             image_id, image_name, image_label = line.strip().split()
             image_names[int(image_id)] = image_name
