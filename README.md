@@ -54,3 +54,7 @@ bash evaluate.sh
 | train_6  | 75.820 | 91.992 | 49.236 | 64.708 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 |
 | train_7  | 73.990 | 91.163 | 42.404 | 56.433 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 / (crop_size 224, resize_size 224) |
 | train_8  | 74.336 | 91.405 | 41.585 | 54.971 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 / (crop_size 224, resize_size 224) |
+
+Qualitative Image
+
+![image](image_path/sample.jpg)
