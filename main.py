@@ -21,8 +21,10 @@ from utils.util_loader import data_loader
 from utils.util import \
     accuracy, adjust_learning_rate, \
     save_checkpoint, load_model, AverageMeter, IMAGE_MEAN_VALUE, IMAGE_STD_VALUE, calculate_IOU, draw_bbox, save_images
-
+torch.set_num_threads(4)
 best_acc1 = 0
+
+
 def main():
     args = get_args()
 
@@ -166,26 +168,17 @@ def main_worker(gpu, ngpus_per_node, args):
         if not args.loc:
             val_acc1, val_loss = \
                 validate(val_loader, model, criterion, epoch, args)
+            if args.gpu == 0:
+                writer.add_scalars(args.name, {'t_acc': train_acc1, 't_loss': train_loss,
+                                               'v_acc': val_acc1, 'v_loss':val_loss,}, epoch)
 
         else:
             val_acc1, val_acc5, top1_loc, top5_loc, gt_loc, val_loss = \
                 evaluate_loc(val_loader, model, criterion, epoch, args)
-
-
-        if args.gpu == 0 and not args.loc:
-            writer.add_scalars(args.name, {'t_acc': train_acc1,
-                                           't_loss': train_loss,
-                                           'v_acc': val_acc1,
-                                           'v_loss':val_loss,}, epoch)
-
-        elif args.gpu == 0 and args.loc:
-            writer.add_scalars(args.name, {'t_acc': train_acc1,
-                                           't_loss': train_loss,
-                                           'v_acc': val_acc1,
-                                           'v_loss': val_loss,
-                                           'top1-loc': top1_loc,
-                                           'top5-loc': top5_loc,
-                                           'gt-loc': gt_loc}, epoch)
+            if args.gpu == 0:
+                writer.add_scalars(args.name, {'t_acc': train_acc1, 't_loss': train_loss, 'v_acc': val_acc1,
+                                               'v_loss': val_loss, 'top1-loc': top1_loc, 'top5-loc': top5_loc,
+                                               'gt-loc': gt_loc}, epoch)
 
         is_best = val_acc1 > best_acc1
         best_acc1 = max(val_acc1, best_acc1)

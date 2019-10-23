@@ -1,7 +1,7 @@
 import os
 import cv2
 import numpy as np
-
+import pickle
 import torch
 
 
@@ -56,9 +56,8 @@ def load_bbox(args):
     dataset_path = args.data_list
     resize_size = args.resize_size
     crop_size = args.crop_size
-    dataset = args.dataset
 
-    if dataset == 'CUB':
+    if args.dataset == 'CUB':
         with open(os.path.join(dataset_path, 'bounding_boxes.txt')) as f:
             for each_line in f:
                 file_info = each_line.strip().split()
@@ -75,33 +74,44 @@ def load_bbox(args):
                 image_width, image_height = map(float, file_info[1:])
 
                 image_sizes[image_id] = [image_width, image_height]
+
         if args.VAL_CROP:
-
-            resize_size = float(resize_size - 1)
-            shift_size = (resize_size - crop_size) / 2
-            for i in origin_bbox.keys():
-                x, y, bbox_width, bbox_height = origin_bbox[i]
-                image_width, image_height = image_sizes[i]
-                left_bottom_x = int(max(x / image_width * resize_size - shift_size, 0))
-                left_bottom_y = int(max(y / image_height * resize_size - shift_size, 0))
-
-                right_top_x = int(min((x + bbox_width) / image_width * resize_size - shift_size, crop_size - 1))
-                right_top_y = int(min((y + bbox_height) / image_height * resize_size - shift_size, crop_size - 1))
-                resized_bbox[i] = [[left_bottom_x, left_bottom_y, right_top_x, right_top_y]]
+            shift_size = (resize_size - crop_size) // 2
         else:
-            for i in origin_bbox.keys():
-                x, y, bbox_width, bbox_height = origin_bbox[i]
-                image_width, image_height = image_sizes[i]
+            shift_size = 0
+        for key in origin_bbox.keys():
+            x, y, bbox_width, bbox_height = origin_bbox[key]
+            image_width, image_height = image_sizes[key]
+            left_bottom_x = int(max(x / image_width * resize_size - shift_size, 0))
+            left_bottom_y = int(max(y / image_height * resize_size - shift_size, 0))
 
-                left_bottom_x = int(max(x / image_width * crop_size, 0))
-                left_bottom_y = int(max(y / image_height * crop_size, 0))
-                right_top_x = int(min((x + bbox_width) / image_width * crop_size, crop_size - 1))
-                right_top_y = int(min((y + bbox_height) / image_height * crop_size, crop_size - 1))
+            right_top_x = int(min((x + bbox_width) / image_width * resize_size - shift_size, crop_size - 1))
+            right_top_y = int(min((y + bbox_height) / image_height * resize_size - shift_size, crop_size - 1))
+            resized_bbox[key] = [[left_bottom_x, left_bottom_y, right_top_x, right_top_y]]
 
-                resized_bbox[i] = [[left_bottom_x, left_bottom_y, right_top_x, right_top_y]]
+    elif args.dataset == 'ILSVRC':
+        with open(os.path.join(dataset_path, 'gt_ImageNet.pickle'), 'rb') as f:
+            info_imagenet = pickle.load(f)
 
+        origin_bbox = info_imagenet['gt_bboxes']
+        image_sizes = info_imagenet['image_sizes']
+        if args.VAL_CROP:
+            shift_size = (resize_size - crop_size) // 2
+        else:
+            shift_size = 0
+        for key in origin_bbox.keys():
+            image_height, image_width = image_sizes[key]
+            resized_bbox[key] = list()
+            for bbox in origin_bbox[key]:
+                x_min, y_min, x_max, y_max = bbox
+                left_bottom_x = int(max(x_min / image_width * resize_size - shift_size, 0))
+                left_bottom_y = int(max(y_min / image_height * resize_size - shift_size, 0))
+                right_top_x = int(min(x_max / image_width * resize_size - shift_size, crop_size-1))
+                right_top_y = int(min(y_max / image_height * resize_size - shift_size, crop_size-1))
+
+                resized_bbox[key].append([left_bottom_x, left_bottom_y, right_top_x, right_top_y])
     else:
-        raise Exception("No dataset named {}".format(dataset))
+        raise Exception("No dataset named {}".format(args.dataset))
 
     return resized_bbox
 

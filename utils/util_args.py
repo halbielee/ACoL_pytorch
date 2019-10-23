@@ -103,5 +103,7 @@ def get_args():
     args.dist_url = dist_url_generator()
     if args.dataset == 'CUB':
         args.data_list = 'datalist/CUB'
+    elif args.dataset == 'ILSVRC':
+        args.data_list = 'datalist/ILSVRC'
 
     return args

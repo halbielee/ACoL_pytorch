@@ -3,6 +3,7 @@ import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from utils.dataset.cub import CUBDataset
+from utils.dataset.imagenet import  ImageNetDataset
 from utils.util import IMAGE_MEAN_VALUE, IMAGE_STD_VALUE
 
 
@@ -28,18 +29,34 @@ def data_loader(args):
             transforms.Normalize(IMAGE_MEAN_VALUE, IMAGE_STD_VALUE),
         ])
 
-    img_train = CUBDataset(
-        root=args.data_root,
-        datalist=os.path.join(args.data_list, 'train.txt'),
-        transform=transform_train,
-        is_train=True
-    )
-    img_val = CUBDataset(
-        root=args.data_root,
-        datalist=os.path.join(args.data_list, 'test.txt'),
-        transform=transform_val,
-        is_train=False
-    )
+    if args.dataset == 'CUB':
+        img_train = CUBDataset(
+            root=args.data_root,
+            datalist=os.path.join(args.data_list, 'train.txt'),
+            transform=transform_train,
+            is_train=True
+        )
+        img_val = CUBDataset(
+            root=args.data_root,
+            datalist=os.path.join(args.data_list, 'test.txt'),
+            transform=transform_val,
+            is_train=False
+        )
+    elif args.dataset == 'ILSVRC':
+        img_train = ImageNetDataset(
+            root=os.path.join(args.data_root, 'train'),
+            datalist=os.path.join(args.data_list, 'train.txt'),
+            transform=transform_train,
+            is_train=True
+        )
+        img_val = ImageNetDataset(
+            root=os.path.join(args.data_root, 'val'),
+            datalist=os.path.join(args.data_list, 'val.txt'),
+            transform=transform_val,
+            is_train=False
+        )
+    else:
+        raise Exception("No matching dataset {}.".format(args.dataset))
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(img_train)

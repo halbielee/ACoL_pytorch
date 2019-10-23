@@ -9,52 +9,43 @@ This is the reproducing version of [Adversarial Complementary Learning for Weakl
 - Python 3.6+
 - Pytorch ( >= 1.1)
 - Python bindings for OpenCV
+- tqdm
 - tensorboardX
-
-
 
 ## Data Preparation
 
-### 	CUB-200-2011
-
-- Download the dataset from [here](http://www.vision.caltech.edu/visipedia/CUB-200-2011.html)
-
+- [ImageNet download link](http://image-net.org/download)
+- [CUB-200-2011 download link](http://www.vision.caltech.edu/visipedia/CUB-200-2011.html)
 
 
-
-#### Train
+## Execution
+##### Train
 
 ```
-git clone https://github.com/halbielee/ACoL_reproducing.git
+git clone https://github.com/halbielee/ACoL_pytorch.git
 wget http://www.vision.caltech.edu/visipedia-data/CUB-200-2011/CUB_200_2011.tgz
 tar -xvf CUB_200_2011.tgz
-cd ACoL_reproducing
-bash run.sh
+cd ACoL_pytorch
+bash script/train.sh
+```
+
+##### Evaluate
+
+```
+# First download trained model from the link
+bash script/evaluate.sh
 ```
 
 
+## Performance
+ We provide the performance with trained model.  
 
-#### Evaluate
-
-```
-bash evaluate.sh
-```
+| Dataset  | Method     | Acc1 | Acc5 | Top1_LOC(0.15/0.2) | GT-known | condition |
+| -------- | -------- | ---- | ---- | -------- | ------- | -------------------- |
+| CUB-200  | [acol](https://drive.google.com/a/yonsei.ac.kr/file/d/1wK9k2HBZMk_W4ZukS0MSfA7i23ewaLUE/view?usp=sharing) | 76.46 | 92.44 | 49.78 / 46.06   | 59.46   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
 
 
 
-#### Performance(with trained model)
-
-| Name     | Acc1 | Acc5 | Top1_LOC | GT-known | condition                                    |
-| -------- | ---- | ---- | -------- | ------- | -------------------------------------------- |
-| [train_1](https://drive.google.com/open?id=1ABbzUWRFtJYa5ZXBb0SS5t79lBWv8S9K) | 75.337 | 92.492 | 48.155   | 63.616   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
-| [train_2](https://drive.google.com/open?id=1IWMZMJ8LnWiaA-SOA7fLHKm7WMOQqvkP) | 75.768 | 92.717 | 48.887   | 64.617   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
-| [train_3](https://drive.google.com/open?id=1Wg5pvd_uRiv-uhbPkYiD1glvj6sIRDuS) | 75.923 | 92.544 | 49.212 | 64.076 | batch 32, lr 0.001, wd 1e-4, 60/200, thr 0.7 |
-| [train_4](https://drive.google.com/open?id=1PdHHO91AGD-ySMde0a_Vy-k9R1bnXB7X) | 77.097 | 92.475 | 50.935 | 64.863 | batch 32, lr 0.001, wd 1e-4, 60/200, thr 0.7 |
-| train_5  | 75.233 | 91.905 | 46.284 | 61.794 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 |
-| train_6  | 75.820 | 91.992 | 49.236 | 64.708 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 |
-| train_7  | 73.990 | 91.163 | 42.404 | 56.433 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 / (crop_size 224, resize_size 224) |
-| train_8  | 74.336 | 91.405 | 41.585 | 54.971 | batch 32, lr 0.001, wd 1e-4, 70/250, thr 0.7 / (crop_size 224, resize_size 224) |
-
-Qualitative Image
+## Qualitative Image
 
 ![image](image_path/sample.jpg)
