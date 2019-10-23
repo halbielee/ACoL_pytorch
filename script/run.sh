@@ -4,11 +4,11 @@
 
 gpu=0
 arch=vgg16_acol
-name=test2
+name=acol_train1
 dataset=CUB
 data_root="../CUB_200_2011/images"
-epoch=200
-decay=60
+epoch=150
+decay=40
 batch=32
 wd=1e-4
 lr=0.001
@@ -30,7 +30,5 @@ CUDA_VISIBLE_DEVICES=${gpu} python main.py \
 --nest True \
 --erase-thr 0.7 \
 --acol-cls False \
---VAL-CROP True \
---evaluate True \
---cam-thr 0.15 \
---resume train_log/acol_train1/acol_train1/model_best.pth.tar
+--VAL-CROP False \
+--loc True

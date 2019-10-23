@@ -1,2 +1,4 @@
 utils/__pycache__/*.pyc
 network/__pycache__/*.pyc
+.idea/*
+train_log/*

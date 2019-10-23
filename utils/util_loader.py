@@ -1,51 +1,45 @@
+import os
+import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from .dataset_cub import CUBCamDataset
-
-import torchvision
-import torch
-import numpy as np
-
-def data_loader(args, test_path=False):
-
-    mean_vals = [0.485, 0.456, 0.406]
-    std_vals = [0.229, 0.224, 0.225]
+from utils.dataset.cub import CUBDataset
+from utils.util import IMAGE_MEAN_VALUE, IMAGE_STD_VALUE
 
 
-    input_size = int(args.resize_size)
-    crop_size = int(args.crop_size)
+def data_loader(args):
 
-    tsfm_train = transforms.Compose([transforms.Resize(input_size),
-                                     transforms.RandomCrop(crop_size),
-                                     transforms.RandomHorizontalFlip(),
-                                     transforms.ToTensor(),
-                                     transforms.Normalize(mean_vals, std_vals)
-                                     ])
-
-    if args.tencrop == 'True':
-        func_transforms = [transforms.Resize(input_size),
-                           transforms.TenCrop(crop_size),
-                           transforms.Lambda(
-                               lambda crops: torch.stack(
-                                   [transforms.Normalize(mean_vals, std_vals)(transforms.ToTensor()(crop)) for crop in crops])),
-                           ]
+    transform_train = transforms.Compose([
+        transforms.Resize((args.resize_size, args.resize_size)),
+        transforms.RandomCrop(args.crop_size),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(IMAGE_MEAN_VALUE, IMAGE_STD_VALUE)])
+    if args.VAL_CROP:
+        transform_val = transforms.Compose([
+            transforms.Resize((args.resize_size, args.resize_size)),
+            transforms.CenterCrop(args.crop_size),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGE_MEAN_VALUE, IMAGE_STD_VALUE),
+        ])
     else:
-        func_transforms = []
-        # print input_size, crop_size
-        if input_size == 0 or crop_size == 0:
-            pass
-        else:
-            func_transforms.append(transforms.Resize((input_size, input_size)))
-            func_transforms.append(transforms.CenterCrop(crop_size))
+        transform_val = transforms.Compose([
+            transforms.Resize((args.crop_size, args.crop_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGE_MEAN_VALUE, IMAGE_STD_VALUE),
+        ])
 
-        func_transforms.append(transforms.ToTensor())
-        func_transforms.append(transforms.Normalize(mean_vals, std_vals))
-
-    tsfm_test = transforms.Compose(func_transforms)
-
-    img_train = CUBCamDataset(root=args.img_dir, dataset='train.txt', transform=tsfm_train)
-
-    img_test = CUBCamDataset(root=args.img_dir, dataset='test.txt', transform=tsfm_test)
+    img_train = CUBDataset(
+        root=args.data_root,
+        datalist=os.path.join(args.data_list, 'train.txt'),
+        transform=transform_train,
+        is_train=True
+    )
+    img_val = CUBDataset(
+        root=args.data_root,
+        datalist=os.path.join(args.data_list, 'test.txt'),
+        transform=transform_val,
+        is_train=False
+    )
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(img_train)
@@ -58,7 +52,7 @@ def data_loader(args, test_path=False):
                               sampler=train_sampler,
                               num_workers=args.workers)
 
-    val_loader = DataLoader(img_test,
+    val_loader = DataLoader(img_val,
                             batch_size=args.batch_size,
                             shuffle=False,
                             num_workers=args.workers)

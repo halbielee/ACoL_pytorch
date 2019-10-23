@@ -1,12 +1,31 @@
-import os
+import socket
 import argparse
 
-ROOT_DIR = '/'.join(os.getcwd().split('/')[:-1])
+
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+def dist_url_generator():
+    address = '127.0.0.1'
+    for port in range(50000, 50100):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        is_used = sock.connect_ex((address, port))
+        if is_used != 0:
+            sock.close()
+            return 'tcp://' + address + ':' + str(port)
+        sock.close()
+    raise Exception("Cannot find available port.")
+
+
 def get_args():
 
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-    parser.add_argument("--root_dir", type=str, default=ROOT_DIR,
-                        help='Root dir for the project')
     parser.add_argument('-a', '--arch', metavar='ARCH', default='vgg16',
                         help='model architecture: default: resnet18)')
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
@@ -31,10 +50,11 @@ def get_args():
                         metavar='N', help='print frequency (default: 10)')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
-    parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
+    parser.add_argument('-e', '--evaluate', dest='evaluate', type=str2bool,
+                        nargs='?', const=True, default=False,
                         help='evaluate model on validation set')
-    parser.add_argument('--pretrained', dest='pretrained', action='store_true',
-                        help='use pre-trained model')
+    parser.add_argument('--pretrained', type=str2bool, nargs='?',
+                        const=True, default=False, help='use pre-trained model')
     parser.add_argument('--world-size', default=1, type=int,
                         help='number of nodes for distributed training')
     parser.add_argument('--rank', default=0, type=int,
@@ -53,27 +73,35 @@ def get_args():
                             'fastest way to use PyTorch for either single node or '
                             'multi node data parallel training')
 
-    parser.add_argument('--dataset', type=str, default='pascal')
-    parser.add_argument('--save-dir', type=str, default='checkpoints/')
+    # Training
+    parser.add_argument('--name', type=str, default='test_case')
     parser.add_argument('--LR-decay', type=int, default=30)
     parser.add_argument('--lr-ratio', type=float, default=10)
-    parser.add_argument('--name', type=str, default='test_case')
-    parser.add_argument('--nest', action='store_true')
+    parser.add_argument('--nest', type=str2bool, nargs='?', const=True, default=False)
+    parser.add_argument('--loc', type=str2bool, nargs='?', const=True, default=False)
 
-    parser.add_argument("--img_dir", type=str, default='',
-                        help='Directory of training images')
-    parser.add_argument("--train_list", type=str)
-    parser.add_argument("--test_list", type=str)
-    parser.add_argument("--num-classes", type=int, default=1000)
-    parser.add_argument('--cam-thr', type=float, default=0.2, help='cam threshold value')
-    parser.add_argument('--erase-thr', type=float, default=0.7)
-    parser.add_argument('--image-save', action='store_true')
-    # bbox
+    # Dataset
+    parser.add_argument('--dataset', type=str, default='CUB')
+    parser.add_argument("--data-list", type=str, help="data list path")
+    parser.add_argument("--data-root", type=str, default='', help='Directory of training images')
     parser.add_argument('--resize-size', type=int, default=256, help='validation resize size')
     parser.add_argument('--crop-size', type=int, default=224, help='validation crop size')
-    parser.add_argument('--test', action='store_true', help='If true, only evaluation.')
-    parser.add_argument('--tencrop', action='store_true')
-    parser.add_argument('--validation', type=str, default='val')
+    parser.add_argument('--VAL-CROP', type=str2bool, nargs='?', const=True, default=False,
+                        help='Evaluation method'
+                             'If True, Evaluate on 256x256 resized and center cropped 224x224 map'
+                             'If False, Evaluate on directly 224x224 resized map')
+
+    # ACoL
+    parser.add_argument('--erase-thr', type=float, default=0.7, help='ACoL erasing threshold')
+    parser.add_argument('--acol-cls', type=str2bool, nargs='?', const=True, default=False,
+                        help='For no erasing training in ACoL')
+
+    # CAM
+    parser.add_argument('--cam-thr', type=float, default=0.2, help='cam threshold value')
+
     args = parser.parse_args()
+    args.dist_url = dist_url_generator()
+    if args.dataset == 'CUB':
+        args.data_list = 'datalist/CUB'
 
     return args

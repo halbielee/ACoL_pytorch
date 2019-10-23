@@ -1,247 +1,144 @@
-import os, sys
-sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-import torch
+import os
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
-from torch.autograd import Variable
+
+import torch
 
 
-def get_denorm_tensor(images):
-    b, c, h, w = images.shape
+def get_cam(model, target=None, image=None, args=None):
+    """
+    Return CAM tensor which shape is (batch, 1, h, w)
+    """
+    with torch.no_grad():
 
-    denormed_image = ((images.cpu().detach() * 0.22 + 0.45) * 255.)
+        if image is not None:
+            _ = model(image)
 
-    denormed_image = denormed_image.view(b, c, -1)
-    minimum, _ = torch.min(denormed_image, dim=-1, keepdim=True)
-    maximum, _ = torch.max(denormed_image, dim=-1, keepdim=True)
+        # Extract feature map
+        if args.distributed:
+            feature_map, score = model.module.get_cam()
+        else:
+            feature_map, score = model.get_cam()
 
-    denormed_image = torch.div(denormed_image - minimum,
-                               (maximum - minimum))
+        # Extract fc weight
+        batch, channel, _, _ = feature_map.size()
 
-    denormed_image = denormed_image.view(b,c,h,w)
+        # get prediction in shape (batch)
+        if target is None:
+            _, target = score.topk(1, 1, True, True)
+        target = target.squeeze()
 
-    return denormed_image
-
-
-def get_heatmap_tensor(images, masks):
-    '''
-    b, 3, 224, 224
-    b, 1, 224, 224
-    '''
-    saving_tensor = torch.zeros_like(images)
-
-    images = images.squeeze(0).cpu().numpy().transpose(0,2,3,1)
-    b, _, h, w = masks.shape
-    masks = masks.squeeze(1).cpu().numpy()
-
-    for i in range(b):
-        image = images[i]
-        mask = masks[i]
-        heatmap = get_heatmap(image, mask)
-        saving_tensor[i] = torch.tensor(heatmap.transpose(2,0,1))
-    return saving_tensor
+        cam = feature_map[range(batch), target]
+        return cam.unsqueeze(1)
 
 
-def get_heatmap(image, mask):
-    mask = mask - np.min(mask)
-    mask = mask / np.max(mask)
-    heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)
-    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-    heatmap = np.float32(heatmap) / 255
-    heatmap = heatmap + np.float32(image)
-    heatmap = heatmap / np.max(heatmap)
-    return heatmap * 255.
+def resize_cam(cam, size=(224, 224)):
+    cam = cv2.resize(cam, (size[0], size[1]), interpolation=cv2.INTER_CUBIC)
+    cam = cam - cam.min()
+    cam = cam / cam.max()
+    return cam
 
 
-def large_rect(rect):
-    # find largest recteangles
-    large_area = 0
-    target = 0
-    for i in range(len(rect)):
-        area = rect[i][2] * rect[i][3]
-        if large_area < area:
-            large_area = area
-            target = i
-
-    x = rect[target][0]
-    y = rect[target][1]
-    w = rect[target][2]
-    h = rect[target][3]
-
-    return x, y, w, h
-
-
-def get_bbox(image, cam, thresh, gt_box, image_name, save_dir='test', isSave=False):
-    gxa = int(gt_box[0])
-    gya = int(gt_box[1])
-    gxb = int(gt_box[2])
-    gyb = int(gt_box[3])
-
-    image_size = 224
-    adjusted_gt_bbox = []
-    adjusted_gt_bbox.append(max(gxa, 0))
-    adjusted_gt_bbox.append(max(gya, 0))
-    adjusted_gt_bbox.append(min(gxb, image_size-1))
-    adjusted_gt_bbox.append(min(gyb, image_size-1))
-    '''
-    image: single image, shape (224, 224, 3)
-    cam: single image, shape(14, 14)
-    thresh: the floating point value (0~1)
-    '''
-    # resize to original size
-    # cam = cv2.resize(cam, (image_size, image_size))
-    cam = np.squeeze(cam, axis=0)
-
-    # convert to color map
-    heatmap = intensity_to_rgb(cam, normalize=True).astype('uint8')
-
-    # heatmap = cv2.cvtColor(heatmap, cv2.COLOR_RGB2BGR)
-    # blend the original image with estimated heatmap
+def blend_cam(image, cam):
+    cam = (cam * 255.).astype(np.uint8)
+    heatmap = cv2.applyColorMap(cam, cv2.COLORMAP_JET)
     blend = image * 0.5 + heatmap * 0.5
 
-    # initialization for boundary box
-    bbox_img = image.astype('uint8').copy()
-    heatmap = heatmap.astype('uint8')
-    blend = blend.astype('uint8')
-    blend_box = blend.copy()
-    # thresholding heatmap
-    gray_heatmap = cv2.cvtColor(heatmap.copy(), cv2.COLOR_RGB2GRAY)
-    th_value = np.max(gray_heatmap) * thresh
+    return blend, heatmap
 
-    _, thred_gray_heatmap = \
-        cv2.threshold(gray_heatmap, int(th_value),
-                      255, cv2.THRESH_BINARY)
+
+def load_bbox(args):
+    """ Load bounding box information """
+    origin_bbox = {}
+    image_sizes = {}
+    resized_bbox = {}
+
+    dataset_path = args.data_list
+    resize_size = args.resize_size
+    crop_size = args.crop_size
+    dataset = args.dataset
+
+    if dataset == 'CUB':
+        with open(os.path.join(dataset_path, 'bounding_boxes.txt')) as f:
+            for each_line in f:
+                file_info = each_line.strip().split()
+                image_id = int(file_info[0])
+
+                x, y, bbox_width, bbox_height = map(float, file_info[1:])
+
+                origin_bbox[image_id] = [x, y, bbox_width, bbox_height]
+
+        with open(os.path.join(dataset_path, 'sizes.txt')) as f:
+            for each_line in f:
+                file_info = each_line.strip().split()
+                image_id = int(file_info[0])
+                image_width, image_height = map(float, file_info[1:])
+
+                image_sizes[image_id] = [image_width, image_height]
+        if args.VAL_CROP:
+
+            resize_size = float(resize_size - 1)
+            shift_size = (resize_size - crop_size) / 2
+            for i in origin_bbox.keys():
+                x, y, bbox_width, bbox_height = origin_bbox[i]
+                image_width, image_height = image_sizes[i]
+                left_bottom_x = int(max(x / image_width * resize_size - shift_size, 0))
+                left_bottom_y = int(max(y / image_height * resize_size - shift_size, 0))
+
+                right_top_x = int(min((x + bbox_width) / image_width * resize_size - shift_size, crop_size - 1))
+                right_top_y = int(min((y + bbox_height) / image_height * resize_size - shift_size, crop_size - 1))
+                resized_bbox[i] = [[left_bottom_x, left_bottom_y, right_top_x, right_top_y]]
+        else:
+            for i in origin_bbox.keys():
+                x, y, bbox_width, bbox_height = origin_bbox[i]
+                image_width, image_height = image_sizes[i]
+
+                left_bottom_x = int(max(x / image_width * crop_size, 0))
+                left_bottom_y = int(max(y / image_height * crop_size, 0))
+                right_top_x = int(min((x + bbox_width) / image_width * crop_size, crop_size - 1))
+                right_top_y = int(min((y + bbox_height) / image_height * crop_size, crop_size - 1))
+
+                resized_bbox[i] = [[left_bottom_x, left_bottom_y, right_top_x, right_top_y]]
+
+    else:
+        raise Exception("No dataset named {}".format(dataset))
+
+    return resized_bbox
+
+
+def get_bboxes(cam, cam_thr=0.2):
+    """
+    image: single image with shape (h, w, 3)
+    cam: single image with shape (h, w, 1)
+    gt_bbox: [x, y, x + w, y + h]
+    thr_val: float value (0~1)
+
+    return estimated bounding box, blend image with boxes
+    """
+    cam = (cam * 255.).astype(np.uint8)
+    map_thr = cam_thr * np.max(cam)
+
+    _, thr_gray_heatmap = cv2.threshold(cam,
+                                        int(map_thr), 255,
+                                        cv2.THRESH_BINARY)
+
     try:
-        _, contours, _ = \
-            cv2.findContours(thred_gray_heatmap, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        _, contours, _ = cv2.findContours(thr_gray_heatmap,
+                                          cv2.RETR_TREE,
+                                          cv2.CHAIN_APPROX_SIMPLE)
     except:
-        contours, _ = \
-            cv2.findContours(thred_gray_heatmap, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
+        contours, _ = cv2.findContours(thr_gray_heatmap,
+                                       cv2.RETR_TREE,
+                                       cv2.CHAIN_APPROX_SIMPLE)
     if len(contours) != 0:
         c = max(contours, key=cv2.contourArea)
-
         x, y, w, h = cv2.boundingRect(c)
-        estimated_box = [x, y, x + w, y + h]
-
-        cv2.rectangle(bbox_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.rectangle(blend_box, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-    cv2.rectangle(bbox_img, (adjusted_gt_bbox[0], adjusted_gt_bbox[1]),
-                  (adjusted_gt_bbox[2], adjusted_gt_bbox[3]), (0, 0, 255), 2)
-    cv2.rectangle(blend_box, (adjusted_gt_bbox[0], adjusted_gt_bbox[1]),
-                  (adjusted_gt_bbox[2], adjusted_gt_bbox[3]), (0, 0, 255), 2)
-    concat = np.concatenate((bbox_img, heatmap, blend), axis=1)
-
-    # calculate bbox coordinates
-    rect = []
-    for c in contours:
-        x, y, w, h = cv2.boundingRect(c)
-        rect.append([x, y, w, h])
-    if len(rect) == 0:
-        estimated_box = [0,0,1,1]
+        estimated_bbox = [x, y, x + w, y + h]
     else:
-        x, y, w, h = large_rect(rect)
-        estimated_box = [x, y, x + w, y + h]
+        estimated_bbox = [0, 0, 1, 1]
 
-        cv2.rectangle(bbox_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.rectangle(blend_box, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-    cv2.rectangle(bbox_img, (adjusted_gt_bbox[0], adjusted_gt_bbox[1]),
-                  (adjusted_gt_bbox[2], adjusted_gt_bbox[3]), (0, 0, 255), 2)
-    cv2.rectangle(blend_box, (adjusted_gt_bbox[0], adjusted_gt_bbox[1]),
-                  (adjusted_gt_bbox[2], adjusted_gt_bbox[3]), (0, 0, 255), 2)
-    concat = np.concatenate((bbox_img, heatmap, blend), axis=1)
-
-    # if isSave:
-    #     if not os.path.isdir(os.path.join('image_path/', save_dir)):
-    #         os.makedirs(os.path.join('image_path', save_dir))
-    #     cv2.imwrite(os.path.join(os.path.join('image_path/',
-    #                                           save_dir,
-    #                                           image_name.split('/')[-1])), concat)
-    blend_box = cv2.cvtColor(blend_box, cv2.COLOR_BGR2RGB).copy()
-
-    return estimated_box, adjusted_gt_bbox, blend_box
+    return estimated_bbox
 
 
-def intensity_to_rgb(intensity, cmap='cubehelix', normalize=False):
-    """
-    Convert a 1-channel matrix of intensities to an RGB image employing a colormap.
-    This function requires matplotlib. See `matplotlib colormaps
-    <http://matplotlib.org/examples/color/colormaps_reference.html>`_ for a
-    list of available colormap.
-    Args:
-        intensity (np.ndarray): array of intensities such as saliency.
-        cmap (str): name of the colormap to use.
-        normalize (bool): if True, will normalize the intensity so that it has
-            minimum 0 and maximum 1.
-    Returns:
-        np.ndarray: an RGB float32 image in range [0, 255], a colored heatmap.
-    """
-    assert intensity.ndim == 2, intensity.shape
-    intensity = intensity.astype("float")
-
-    if normalize:
-        intensity -= intensity.min()
-        intensity /= intensity.max()
-
-    cmap = 'jet'
-    cmap = plt.get_cmap(cmap)
-    intensity = cmap(intensity)[..., :3]
-    return intensity.astype('float32') * 255.0
 
 
-def cammed_image(image, mask, require_norm=False):
-    if require_norm:
-        mask = mask - np.min(mask)
-        mask = mask / np.max(mask)
-    heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)
-    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-    heatmap = np.float32(heatmap) / 255
-    cam = heatmap + np.float32(image)
-    cam = cam / np.max(cam)
-    return heatmap * 255., cam * 255.
-
-
-def norm_att_map(att_maps):
-    _min = att_maps.min(-1, keepdim=True)[0].min(-2, keepdim=True)[0]
-    _max = att_maps.max(-1, keepdim=True)[0].max(-2, keepdim=True)[0]
-    att_norm = (att_maps - _min) / (_max - _min)
-    return att_norm
-
-
-# def get_att_map(feature_map, target, norm=True):
-#     with torch.no_grad():
-#         target = target.long()
-#         att_map = Variable(torch.zeros([feature_map.shape[0], feature_map.shape[2], feature_map.shape[3]]))
-#
-#         for idx in range(feature_map.shape[0]):
-#             att_map[idx, :, :] = torch.squeeze(feature_map[idx, target.data[idx], :, :])
-#
-#         if norm:
-#             att_map = norm_att_map(att_map)
-#
-#     return att_map
-
-def get_attention_map(feature_map, label, normalize=True):
-    with torch.no_grad():
-        label = label.long()
-        b = feature_map.size(0)
-        attention_map = feature_map[range(b),label,:,:]
-
-        if normalize:
-            attention_map = norm_att_map(attention_map)
-
-        return attention_map
-
-def main():
-
-    models = getattr(resnet_se, 'se_resnet50')
-    model = models(False)
-
-
-    return
-
-if __name__ == '__main__':
-    main()
