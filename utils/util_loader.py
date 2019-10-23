@@ -54,7 +54,7 @@ def data_loader(args):
         else:
             val_list = os.path.join(args.data_list, 'val.txt')
         img_val = ImageNetDataset(
-            root=os.path.join(args.data_root, 'val'),
+            root=os.path.join(args.data_root, 'val_save'),
             datalist=val_list,
             transform=transform_val,
             is_train=False

@@ -24,6 +24,8 @@ class ImageNetDataset(Dataset):
         image_id = self.image_ids[idx]
         image_label = self.image_labels[idx]
         image = Image.open(os.path.join(self.root, image_id+'.JPEG')).convert('RGB')
+        if '/' in image_id:
+            image_id = image_id.split('/')[1]
         if self.transform is not None:
             image = self.transform(image)
         if self.is_train:
