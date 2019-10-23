@@ -49,9 +49,13 @@ def data_loader(args):
             transform=transform_train,
             is_train=True
         )
+        if args.label_folder:
+            val_list = os.path.join(args.data_list, 'val_folder.txt')
+        else:
+            val_list = os.path.join(args.data_list, 'val.txt')
         img_val = ImageNetDataset(
             root=os.path.join(args.data_root, 'val'),
-            datalist=os.path.join(args.data_list, 'val.txt'),
+            datalist=val_list,
             transform=transform_val,
             is_train=False
         )

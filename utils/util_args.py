@@ -84,6 +84,7 @@ def get_args():
     parser.add_argument('--dataset', type=str, default='CUB')
     parser.add_argument("--data-list", type=str, help="data list path")
     parser.add_argument("--data-root", type=str, default='', help='Directory of training images')
+    parser.add_argument("--label-folder", type=str2bool, nargs='?', const=True, default=False)
     parser.add_argument('--resize-size', type=int, default=256, help='validation resize size')
     parser.add_argument('--crop-size', type=int, default=224, help='validation crop size')
     parser.add_argument('--VAL-CROP', type=str2bool, nargs='?', const=True, default=False,

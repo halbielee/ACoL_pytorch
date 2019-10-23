@@ -32,5 +32,6 @@ CUDA_VISIBLE_DEVICES=${gpu} python main.py \
 --acol-cls False \
 --VAL-CROP True \
 --evaluate True \
+--label-folder False \
 --cam-thr 0.15 \
 --resume train_log/acol_train1/acol_train1/model_best.pth.tar

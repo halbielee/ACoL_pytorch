@@ -32,5 +32,6 @@ CUDA_VISIBLE_DEVICES=${gpu} python main.py \
 --acol-cls False \
 --VAL-CROP True \
 --evaluate False \
+--label-folder False \
 --cam-thr 0.15 \
 --loc True \
