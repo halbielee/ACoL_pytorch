@@ -78,6 +78,7 @@ def load_bbox(args):
         if args.VAL_CROP:
             shift_size = (resize_size - crop_size) // 2
         else:
+            resize_size = crop_size
             shift_size = 0
         for key in origin_bbox.keys():
             x, y, bbox_width, bbox_height = origin_bbox[key]
@@ -98,6 +99,7 @@ def load_bbox(args):
         if args.VAL_CROP:
             shift_size = (resize_size - crop_size) // 2
         else:
+            resize_size = crop_size
             shift_size = 0
         for key in origin_bbox.keys():
             image_height, image_width = image_sizes[key]
