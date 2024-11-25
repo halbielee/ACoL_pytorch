@@ -42,7 +42,7 @@ bash script/evaluate.sh
 
 | Dataset  | Method     | Acc1 | Acc5 | Top1_LOC(0.15/0.2) | GT-known | condition |
 | -------- | -------- | ---- | ---- | -------- | ------- | -------------------- |
-| CUB-200  | [acol](https://drive.google.com/a/yonsei.ac.kr/file/d/1wK9k2HBZMk_W4ZukS0MSfA7i23ewaLUE/view?usp=sharing) | 76.46 | 92.44 | 49.78 / 46.06   | 59.46   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
+| CUB-200  | [acol]([https://drive.google.com/a/yonsei.ac.kr/file/d/1wK9k2HBZMk_W4ZukS0MSfA7i23ewaLUE/view?usp=sharing](https://drive.google.com/file/d/1lAgQRbuVo0xN_3wQ-SwD-bqFTv4arqxS/view?usp=sharing)) | 76.46 | 92.44 | 49.78 / 46.06   | 59.46   | batch 32, lr 0.001, wd 1e-4, 40/150, thr 0.7 |
 
 
 
